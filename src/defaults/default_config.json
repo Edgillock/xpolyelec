@@ -1,0 +1,37 @@
+{
+    "_comment": "Default configuration for xpolyelec. All values match Patel et al. 2025 at 60 C unless noted.",
+
+    "physical": {
+        "T_K": 333.15,
+        "L_cm": 0.025,
+        "ravg": 0.08,
+        "M_EO_g_per_mol": 44.0,
+        "M_LiTFSI_g_per_mol": 287.0,
+        "vbar_m_nm3": 0.0658,
+        "vbar_s_nm3": 0.187,
+        "F_C_per_mol": 96485.33212,
+        "R_J_per_mol_K": 8.314462618,
+        "z_plus": 1,
+        "z_minus": -1,
+        "nu_plus": 1,
+        "nu_minus": 1
+    },
+
+    "strain_model": {
+        "name": "none",
+        "N_monomers_per_strand": 16,
+        "delta_lambda": 0.06,
+        "lambda_crit_ext": null,
+        "lambda_crit_con": null,
+        "kinematics": "affine_isotropic",
+        "phi_p_model": "paper",
+        "mooney_rivlin_C_ratio": 0.0
+    },
+
+    "fits": {
+        "rho_el": {"form": "linear", "params": [2.29, 1.21]},
+        "kappa":  {"form": "kappa_peak", "params": [0.01, 0.061]},
+        "rho_plus": {"form": "poly2", "params": [9.42, -2.18, 0.17]},
+        "D": {"form": "linear", "params": [-8.93e-9, 3.49e-9]},
+        "U": {"form": "power_law", "params": [-0.14, 0.56, 0.16]}
+    },
