@@ -35,3 +35,32 @@
         "D": {"form": "linear", "params": [-8.93e-9, 3.49e-9]},
         "U": {"form": "power_law", "params": [-0.14, 0.56, 0.16]}
     },
+
+    "solver": {
+        "n_xL_points": 201,
+        "ravg_tol": 1.0e-6,
+        "ravg_max_iter": 80,
+        "r0_bracket": [1.0e-4, 0.30],
+        "quad_abs_tol": 1.0e-10,
+        "quad_rel_tol": 1.0e-8,
+        "iL_sweep": {
+            "_comment": "iL in A/cm. Paper's Fig. 7 range is 1e-6 to 5e-4 mA/cm = 1e-9 to 5e-7 A/cm.",
+            "iL_min": 1.0e-9,
+            "iL_max": 5.0e-7,
+            "n_points": 25,
+            "log_spaced": true
+        }
+    },
+
+    "io": {
+        "default_columns": {
+            "kappa":    ["r", "kappa"],
+            "rho_plus": ["r", "rho_plus"],
+            "D":        ["r", "D"],
+            "U":        ["ln_m", "U"],
+            "rho_el":   ["r", "rho_el"]
+        }
+    },
+
+    "verbose": true
+}
