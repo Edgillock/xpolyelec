@@ -93,3 +93,54 @@ _FAMILIES: dict[str, FitFamily] = {
 }
 
 
+
+# ----------------------------------------------------------------------
+# Fit objects wrapping family + fitted parameters
+# ----------------------------------------------------------------------
+class Fit:
+    """A fitted instance: callable and differentiable."""
+
+    def __init__(self, family: FitFamily, params: tuple[float, ...]):
+        if len(params) != family.n_params:
+            raise ValueError(
+                f"{family.name} expects {family.n_params} params, got {len(params)}"
+            )
+        self.family = family
+        self.params = tuple(float(p) for p in params)
+
+    # Call-style evaluation
+    def __call__(self, x):
+        return self.family.func(np.asarray(x, dtype=float), *self.params)
+
+    def derivative(self, x):
+        return self.family.deriv(np.asarray(x, dtype=float), *self.params)
+
+    def __repr__(self) -> str:
+        return f"Fit(family={self.family.name!r}, params={self.params!r})"
+
+
+class CustomFit:
+    """custom fit example
+    -------
+    >>> my_fit = CustomFit(lambda r: np.tanh(r), lambda r: 1 - np.tanh(r)**2)
+    """
+
+    def __init__(
+        self,
+        func: Callable[[np.ndarray], np.ndarray],
+        deriv: Callable[[np.ndarray], np.ndarray],
+        name: str = "custom",
+    ):
+        self._func = func
+        self._deriv = deriv
+        self.name = name
+        self.params: tuple = ()
+
+    def __call__(self, x):
+        return self._func(np.asarray(x, dtype=float))
+
+    def derivative(self, x):
+        return self._deriv(np.asarray(x, dtype=float))
+
+    def __repr__(self) -> str:
+        return f"CustomFit(name={self.name!r})"
