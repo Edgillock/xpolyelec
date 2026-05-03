@@ -144,3 +144,42 @@ class CustomFit:
 
     def __repr__(self) -> str:
         return f"CustomFit(name={self.name!r})"
+
+# ----------------------------------------------------------------------
+# Registry
+# ----------------------------------------------------------------------
+class FitRegistry:
+    """Name → FitFamily lookup with register/fit helpers."""
+
+    @staticmethod
+    def get(name: str) -> FitFamily:
+        if name not in _FAMILIES:
+            raise KeyError(
+                f"unknown fit family {name!r}. Available: {sorted(_FAMILIES)}"
+            )
+        return _FAMILIES[name]
+
+    @staticmethod
+    def register(family: FitFamily) -> None:
+        _FAMILIES[family.name] = family
+
+    @staticmethod
+    def names() -> list[str]:
+        return sorted(_FAMILIES)
+
+    @staticmethod
+    def fit(name: str, x, y, p0: tuple[float, ...] | None = None) -> Fit:
+        """Least-squares-fit data (x, y) to the named family."""
+        family = FitRegistry.get(name)
+        x_arr = np.asarray(x, dtype=float)
+        y_arr = np.asarray(y, dtype=float)
+        if x_arr.shape != y_arr.shape:
+            raise ValueError("x and y must have matching shapes")
+        p0_use = tuple(p0) if p0 is not None else family.default_p0
+        popt, _pcov = curve_fit(family.func, x_arr, y_arr, p0=p0_use, maxfev=20_000)
+        return Fit(family, tuple(popt))
+
+    @staticmethod
+    def from_params(name: str, params: tuple[float, ...] | list[float]) -> Fit:
+        """Construct a Fit directly from known parameters (no fitting)."""
+        return Fit(FitRegistry.get(name), tuple(params))
