@@ -1,12 +1,12 @@
 """
 Patel et al. 2025 (Eqs. 34-38) use:
 
-* ``linear``     : ``a*x + b``       (rho_el, D)
-* ``kappa_peak`` : ``a*r*exp(-r/b)``  (kappa, Eq. 35)
-* ``poly2``      : ``a*r^2 + b*r + c`` (rho_plus)
-* ``power_law``  : ``a * m**n + c``   (U vs m; m = salt molality)
+linear: a*x + b       (rho_el, D)
+kappa_peak: a*r*exp(-r/b)  (kappa, Eq. 35)
+poly2: a*r^2 + b*r + c (rho_plus)
+power_law: a * m**n + c   (U vs m; m = salt molality)
 
-Additional families for flexibility: ``poly3``, ``exp``.
+Additional families for flexibility: poly3, exp.
 """
 from __future__ import annotations
 
