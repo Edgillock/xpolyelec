@@ -1,12 +1,12 @@
 """Configuration management with change tracking and interactive save.
 
-The :class:`Config` class is a thin wrapper around a nested ``dict`` loaded
+The :class:`Config` class is a thin wrapper around a nested dict loaded
 from a JSON file. It provides:
 
-* Nested access via dotted paths (``cfg.get("strain_model.N_monomers_per_strand")``).
-* Change tracking: every modification is recorded in ``cfg._changes`` and, if
-  ``verbose=True``, printed to stdout as ``"<dotted.path>: <old> -> <new>"``.
-* :meth:`save` which, when called, prompts the user (``input()``) whether to
+Nested access via dotted paths (cfg.get("strain_model.N_monomers_per_strand")).
+Change tracking: every modification is recorded in cfg._changes and, if
+ verbose=True, printed to stdout as "<dotted.path>: <old> -> <new>".
+:meth: save which, when called, prompts the user (input()) whether to
   persist the current configuration to a new JSON file.
 
 The schema is intentionally permissive so that the strain-model subclasses
