@@ -104,3 +104,67 @@ class Config:
         """Apply a dict of ``{dotted.path: value}`` updates."""
         for path, value in mapping.items():
             self.set(path, value)
+    
+    # ------------------------------------------------------------------
+    # Inspection
+    # ------------------------------------------------------------------
+    @property
+    def data(self) -> dict[str, Any]:
+        """Return a deep copy of the underlying dict (read-only contract)."""
+        return copy.deepcopy(self._data)
+
+    @property
+    def changes(self) -> list[tuple[str, Any, Any]]:
+        """List of (dotted_path, old, new) tuples accumulated since load."""
+        return list(self._changes)
+
+    def has_unsaved_changes(self) -> bool:
+        return len(self._changes) > 0
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+    def save(self, path: str | Path | None = None, *, interactive: bool = True) -> Path | None:
+        """Persist the config to JSON.
+
+        If ``path`` is given, writes unconditionally.
+        If ``path`` is None and ``interactive`` is True, prompts the user via
+        ``input()`` whether to save and for a filename. Returns the path
+        written to, or None if the user declined / there are no changes.
+        """
+        if path is not None:
+            out = Path(path)
+            with out.open("w", encoding="utf-8") as fh:
+                json.dump(self._data, fh, indent=4, sort_keys=False)
+            self._changes.clear()
+            if self.verbose:
+                print(f"[xpolyelec] config saved to {out}", file=sys.stdout)
+            return out
+
+        if not interactive:
+            return None
+
+        if not self.has_unsaved_changes():
+            if self.verbose:
+                print("[xpolyelec] no changes to save", file=sys.stdout)
+            return None
+
+        print("[xpolyelec] The following changes have been made:")
+        for p, old, new in self._changes:
+            print(f"    {p}: {old!r} -> {new!r}")
+        reply = input("[xpolyelec] Save current config as a new JSON file? [y/N] ").strip().lower()
+        if reply not in {"y", "yes"}:
+            if self.verbose:
+                print("[xpolyelec] save cancelled", file=sys.stdout)
+            return None
+        fname = input("[xpolyelec] Filename (e.g. my_config.json): ").strip()
+        if not fname:
+            print("[xpolyelec] empty filename, save cancelled", file=sys.stdout)
+            return None
+        return self.save(fname, interactive=False)
+
+    # ------------------------------------------------------------------
+    # Dunders
+    # ------------------------------------------------------------------
+    def __repr__(self) -> str:
+        return f"Config(verbose={self.verbose}, unsaved_changes={len(self._changes)})"
