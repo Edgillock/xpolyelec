@@ -36,8 +36,7 @@ def _build_fit(spec: dict[str, Any] | Fit | CustomFit) -> Fit | CustomFit:
 class TransportProperties:
     """Container for all concentration-dependent property fits.
 
-    Parameters
-    ----------
+    Parameters:
     kappa, rho_plus, D, U, rho_el : Fit or CustomFit
         Fitted functions of ``r`` (or ``ln m`` for ``U``).
     M_EO, M_LiTFSI : float
