@@ -1,18 +1,18 @@
 """Strain-model abstract base + shared kinematics helpers.
 
 Every strain model expresses the chemical-potential contribution
-``mu_strain(r; context)`` (J/mol) and its derivative ``d mu_strain / d r``.
+mu_strain(r; context) (J/mol) and its derivative d mu_strain / dr.
 The solver uses the derivative to build Gamma_strain in Eq. 22b and the
 integrand J_strain in Eq. 27.
 
 Three structural assumptions of the paper are exposed here as switches:
 
-1. ``kinematics``      : "affine_isotropic" (paper) vs. "uniaxial".
-2. ``phi_p_model``     : "paper" (phi_p = 1 - vs*c) vs. a user callable.
-3. ``lambda_crit``     : symmetric (Δ) vs. independent extension/contraction.
+1.kinematics: "affine_isotropic" (paper) vs. "uniaxial".
+2.phi_p_model: "paper" (phi_p = 1 - vs*c) vs. a user callable.
+3.lambda_crit: symmetric (Δ) vs. independent extension/contraction.
 
 Concrete strain models receive a :class:`StrainContext` bundling the
-transport properties, the strain parameters, and the current ``ravg``.
+transport properties, the strain parameters, and the current r_avg.
 """
 from __future__ import annotations
 
@@ -52,11 +52,11 @@ def phi_p0_from_ravg(tp: TransportProperties, ravg: float, vbar_s_nm3: float) ->
 def lambda_from_phi(phi_p: np.ndarray, phi_p0: float, kinematics: str) -> np.ndarray:
     """Convert polymer volume fractions to local extension lambda.
 
-    * ``affine_isotropic`` (paper Eq. 16): lambda = (phi_p0 / phi_p)^(1/3) in
+    * affine_isotropic (paper Eq. 16): lambda = (phi_p0 / phi_p)^(1/3) in
       3D, but the paper uses exponent 0.5 which corresponds to 2D isotropic
       stretch consistent with their derivation. We follow the paper: lambda
       = (phi_p0 / phi_p)^(1/2).
-    * ``uniaxial``: lambda = phi_p0 / phi_p.
+    * uniaxial: lambda = phi_p0 / phi_p.
     """
     phi_p = np.asarray(phi_p, dtype=float)
     ratio = phi_p0 / np.clip(phi_p, 1.0e-12, None)
