@@ -2,11 +2,10 @@
 
 Mooney-Rivlin generalises Neo-Hookean by adding a second invariant I_2: W = C1 * (I_1 - 3) + C2 * (I_2 - 3)
 
-For an incompressible isotropic solid with the paper's stretch kinematics,
 I_1 = lam^2 + 1/lam^2   (paper's 2D convention)
 I_2 = lam^-2 + lam^2   (equal to I_1 under this 2D simplification)
 
-To make Mooney-Rivlin genuinely distinct from Neo-Hookean in the 2D convention
+Mooney-Rivlin genuinely distinct from Neo-Hookean in the 2D convention
 we use the 3D form for I_2:
     I_1_3D = lam^2 + 2/lam      (uniaxial) or  lam^2 + 1/lam^2  (2D)
     I_2_3D = 2 lam + lam^-2      (uniaxial)
@@ -50,6 +49,7 @@ class MooneyRivlinStrain(StrainModel):
         # the algebra collapses (see Neo-Hookean case) to a prefactor times
         # a lambda-only function. For Mooney-Rivlin, the lambda-only function is
         # a weighted sum of the two invariants' derivatives.
+        
         prefactor = (tp.R * tp.T * ctx.vbar_s_nm3) / (ctx.N * ctx.vbar_m_nm3) * (phi_p0 * phi_p) ** 0.5
 
         # d/d lam of (lam^2 + 1/lam^2 - 2) = 2 lam - 2/lam^3
