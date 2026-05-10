@@ -307,3 +307,78 @@ def compute_potential_drop(
         delta_phi_total=total,
         converged=profile.converged,
     )
+
+# ----------------------------------------------------------------------
+# iL sweep (current-voltage relationship)
+# ----------------------------------------------------------------------
+@dataclass
+class IVCurve:
+    iL: np.ndarray
+    delta_phi_total: np.ndarray
+    delta_phi_ohmic: np.ndarray
+    delta_phi_conc: np.ndarray
+    delta_phi_strain: np.ndarray
+    ravg: float
+    converged: np.ndarray
+    i_lim: float | None
+
+
+def sweep_iL(
+    J: JFunctions,
+    transport: TransportProperties,
+    strain_model: StrainModel,
+    ctx: StrainContext,
+    *,
+    ravg: float,
+    iL_values: np.ndarray,
+    n_points: int = 201,
+    r0_bracket: tuple[float, float] = (1.0e-4, 0.30),
+    ravg_tol: float = 1.0e-6,
+    quad_abs_tol: float = 1.0e-10,
+    quad_rel_tol: float = 1.0e-8,
+) -> IVCurve:
+    """Sweep iL → solve profile + compute Δφ for each value. Used for Fig. 7."""
+    iL_values = np.asarray(iL_values, dtype=float)
+    dphi_tot = np.empty_like(iL_values)
+    dphi_oh = np.empty_like(iL_values)
+    dphi_co = np.empty_like(iL_values)
+    dphi_st = np.empty_like(iL_values)
+    conv = np.zeros_like(iL_values, dtype=bool)
+
+    for k, iL in enumerate(iL_values):
+        prof = solve_r_profile(
+            J, ctx,
+            iL=iL, ravg=ravg, n_points=n_points, r0_bracket=r0_bracket,
+            ravg_tol=ravg_tol, F=transport.F,
+            quad_abs_tol=quad_abs_tol, quad_rel_tol=quad_rel_tol,
+        )
+        pd = compute_potential_drop(
+            J, transport, strain_model, ctx, prof,
+            quad_abs_tol=quad_abs_tol, quad_rel_tol=quad_rel_tol,
+        )
+        dphi_tot[k] = pd.delta_phi_total
+        dphi_oh[k] = pd.delta_phi_ohmic
+        dphi_co[k] = pd.delta_phi_conc
+        dphi_st[k] = pd.delta_phi_strain
+        conv[k] = prof.converged
+
+    # Limiting current: largest iL where the profile still converges and
+    # total potential hasn't exploded.
+    try:
+        finite = np.isfinite(dphi_tot) & conv
+        reasonable = dphi_tot < 1.0e3  # V/cm; anything larger is runaway
+        mask = finite & reasonable
+        i_lim = float(iL_values[mask].max()) if mask.any() else None
+    except Exception:
+        i_lim = None
+
+    return IVCurve(
+        iL=iL_values,
+        delta_phi_total=dphi_tot,
+        delta_phi_ohmic=dphi_oh,
+        delta_phi_conc=dphi_co,
+        delta_phi_strain=dphi_st,
+        ravg=float(ravg),
+        converged=conv,
+        i_lim=i_lim,
+    )
