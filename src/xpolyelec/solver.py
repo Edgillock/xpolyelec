@@ -106,3 +106,125 @@ def build_J1_and_J2(
         return conc_term + strain_term
 
     return JFunctions(J1=J1, J2=J2, Gamma_conc=Gamma_conc, Gamma_strain=Gamma_strain)
+
+# ----------------------------------------------------------------------
+# r(x/L) profile solver
+# ----------------------------------------------------------------------
+@dataclass
+class Profile:
+    """Result of solve_r_profile."""
+
+    x_over_L: np.ndarray
+    r: np.ndarray
+    lam: np.ndarray
+    ravg_target: float
+    ravg_achieved: float
+    iL: float
+    iterations: int
+    converged: bool
+
+
+def _integrate_J1(J1: Callable, r_lo: float, r_hi: float, abs_tol: float, rel_tol: float) -> float:
+    if r_hi <= r_lo:
+        return 0.0
+    val, _err = quad(J1, r_lo, r_hi, epsabs=abs_tol, epsrel=rel_tol, limit=200)
+    return float(val)
+
+
+def solve_r_profile(
+    J: JFunctions,
+    ctx: StrainContext,
+    *,
+    iL: float,
+    ravg: float,
+    n_points: int = 201,
+    r0_bracket: tuple[float, float] = (1.0e-4, 0.30),
+    ravg_tol: float = 1.0e-6,
+    max_iter: int = 80,
+    F: float = 96485.33212,
+    quad_abs_tol: float = 1.0e-10,   # kept for API compatibility; unused
+    quad_rel_tol: float = 1.0e-8,    # kept for API compatibility; unused
+    n_r_grid: int = 2001,
+) -> Profile:
+    """Three-step iterative procedure from Patel 2025 (fast inversion form).
+
+    precompute J1 on a dense r-grid once, then use cumulative trapezoid
+    integration to build F(r) = integral of J1 from r_min to r. For any trial
+    r0 (= r at x/L = 0), the profile satisfies：
+
+    F(r(x/L)) - F(r0) = -(iL/F) * (x/L)
+
+    which we invert by linear interpolation on F. Inversion is O(n); no
+    inner root-finding required. The outer step adjusts r0 via brentq until
+    the sample-average matches ravg.
+    """
+    xL = np.linspace(0.0, 1.0, n_points)
+    r_min = max(1.0e-5, r0_bracket[0])
+    r_max = min(0.5, r0_bracket[1])
+    r_grid = np.linspace(r_min, r_max, n_r_grid)
+
+    # Evaluate J1 across the grid (vectorised).
+    J1_vals = np.asarray(J.J1(r_grid), dtype=float)
+    # Guard against NaN / inf from singularities
+    J1_vals = np.where(np.isfinite(J1_vals), J1_vals, 0.0)
+
+    # Cumulative F(r) = integral of J1 from r_min to r (trapezoid)
+    dr = np.diff(r_grid)
+    trap = 0.5 * (J1_vals[:-1] + J1_vals[1:]) * dr
+    F_vals = np.concatenate(([0.0], np.cumsum(trap)))
+
+    # Ensure F_vals is monotonic (required for interp). For J1 > 0 this is
+    # automatic; for Crosslink near singularities, local non-monotonicity can
+    # arise. We enforce monotonicity by masking out backsliding.
+    F_mono = np.maximum.accumulate(F_vals) if F_vals[-1] >= F_vals[0] else np.minimum.accumulate(F_vals)
+    # Strict uniqueness for interp:
+    _, unique_idx = np.unique(F_mono, return_index=True)
+    r_unique = r_grid[unique_idx]
+    F_unique = F_mono[unique_idx]
+
+    def _profile_for_r0(r0: float) -> np.ndarray:
+        F_at_r0 = float(np.interp(r0, r_grid, F_vals))
+        target = F_at_r0 - (iL / F) * xL  # F(r(x/L)) values required
+        # Invert via linear interpolation on (F_unique, r_unique).
+        # np.interp requires the xp to be increasing; if F is decreasing we flip.
+        if F_unique[-1] >= F_unique[0]:
+            return np.interp(target, F_unique, r_unique, left=r_unique[0], right=r_unique[-1])
+        return np.interp(target, F_unique[::-1], r_unique[::-1], left=r_unique[-1], right=r_unique[0])
+
+    def _ravg_residual(r0: float) -> float:
+        r_vals = _profile_for_r0(r0)
+        return float(np.trapezoid(r_vals, xL) - ravg)
+
+    # Outer brentq on r0
+    lo, hi = r_min, r_max
+    f_lo = _ravg_residual(lo)
+    f_hi = _ravg_residual(hi)
+    converged = False
+    iterations = 0
+    r0_final = float(ravg)
+    if f_lo * f_hi < 0.0:
+        try:
+            r0_final, info = brentq(
+                _ravg_residual, lo, hi, xtol=ravg_tol, maxiter=max_iter, full_output=True
+            )
+            converged = bool(info.converged)
+            iterations = int(info.iterations)
+        except Exception:
+            pass
+    else:
+        # As a fallback, choose r0 = ravg (often near the true solution).
+        r0_final = float(ravg)
+
+    r_profile = _profile_for_r0(r0_final)
+    lam = ctx.lambda_of_r(r_profile)
+    ravg_achieved = float(np.trapezoid(r_profile, xL))
+    return Profile(
+        x_over_L=xL,
+        r=r_profile,
+        lam=lam,
+        ravg_target=float(ravg),
+        ravg_achieved=ravg_achieved,
+        iL=float(iL),
+        iterations=iterations,
+        converged=converged,
+    )
