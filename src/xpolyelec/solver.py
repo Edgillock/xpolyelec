@@ -228,3 +228,82 @@ def solve_r_profile(
         iterations=iterations,
         converged=converged,
     )
+
+# ----------------------------------------------------------------------
+# Potential drop
+# ----------------------------------------------------------------------
+@dataclass
+class PotentialDrop:
+    iL: float
+    ravg: float
+    delta_phi_ohmic: float
+    delta_phi_conc: float
+    delta_phi_strain: float
+    delta_phi_total: float
+    converged: bool
+
+
+def compute_potential_drop(
+    J: JFunctions,
+    transport: TransportProperties,
+    strain_model: StrainModel,
+    ctx: StrainContext,
+    profile: Profile,
+    *,
+    quad_abs_tol: float = 1.0e-10,
+    quad_rel_tol: float = 1.0e-8,
+) -> PotentialDrop:
+    """Evaluate Δφ_ohmic, Δφ_conc, Δφ_strain from a solved r profile.
+
+    Per Eqs. 26a-c:
+      Δφ_ohmic = iL * ∫_0^1 dx'/κ(r(x'))
+      Δφ_conc  = (2 RT/F) ∫_{r(0)}^{r(1)} (1 - t_-^0)(1 + d ln g/d ln m)/r dr
+      Δφ_strain = ∫_{r(0)}^{r(1)} t_-^0 * d mu_strain / dr / F * dr
+
+    All quantities are per thickness L (V/cm).
+    """
+    xL = profile.x_over_L
+    r_prof = profile.r
+    iL = profile.iL
+    RT_over_F = (transport.R * transport.T) / transport.F
+
+    # --- Ohmic (integral over x/L) ---
+    kappa_vals = np.asarray(transport.kappa(r_prof))
+    integrand_ohmic = 1.0 / np.clip(kappa_vals, 1.0e-30, None)
+    delta_phi_ohmic = float(iL * np.trapezoid(integrand_ohmic, xL))
+
+    # --- Concentration & strain (integrals over r from r(x/L=1) to r(x/L=0)) ---
+    r_lo = float(r_prof[-1])  # x/L = 1
+    r_hi = float(r_prof[0])   # x/L = 0
+
+    def conc_integrand(r):
+        t_minus = transport.t_minus_0(r)
+        tf = transport.thermo_factor(r)
+        return 2.0 * RT_over_F * (1.0 - t_minus) * tf / r
+
+    def strain_integrand(r):
+        if strain_model.name == "none":
+            return 0.0
+        t_minus = transport.t_minus_0(r)
+        dmu_dr = strain_model.d_mu_strain_d_r(np.asarray([r]), ctx)[0]
+        return t_minus * dmu_dr / transport.F
+
+    try:
+        dphi_conc, _ = quad(conc_integrand, r_lo, r_hi, epsabs=quad_abs_tol, epsrel=quad_rel_tol, limit=200)
+    except Exception:
+        dphi_conc = 0.0
+    try:
+        dphi_strain, _ = quad(strain_integrand, r_lo, r_hi, epsabs=quad_abs_tol, epsrel=quad_rel_tol, limit=200)
+    except Exception:
+        dphi_strain = 0.0
+
+    total = delta_phi_ohmic + float(dphi_conc) + float(dphi_strain)
+    return PotentialDrop(
+        iL=iL,
+        ravg=profile.ravg_target,
+        delta_phi_ohmic=delta_phi_ohmic,
+        delta_phi_conc=float(dphi_conc),
+        delta_phi_strain=float(dphi_strain),
+        delta_phi_total=total,
+        converged=profile.converged,
+    )
