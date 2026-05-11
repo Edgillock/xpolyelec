@@ -6,8 +6,8 @@ plot_fig2:  transport property fits vs r   (6 sub-panels)
 plot_fig3:  J1(r) for chosen models        (overlay)
 plot_fig4:  r(x/L) profile + lambda(x/L)
 plot_fig5:  J2(r) for chosen models        (overlay)
-plot_fig6:  Δφ/L decomposition vs x/L
-plot_fig7:  Δφ_ss/L vs iL  (current-voltage relationship)
+plot_fig6:  phi/L decomposition vs x/L
+plot_fig7:  phi_ss/L vs iL  (current-voltage relationship)
 """
 from __future__ import annotations
 
