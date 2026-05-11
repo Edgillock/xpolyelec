@@ -103,3 +103,24 @@ def plot_fig2(
 
     fig.tight_layout()
     return fig, axs
+
+# ----------------------------------------------------------------------
+# Fig. 3: J1(r)
+# ----------------------------------------------------------------------
+def plot_fig3(
+    models: dict[str, JFunctions],
+    r_grid: np.ndarray | None = None,
+):
+    """Overlay J1(r) for one or more model labels."""
+    if r_grid is None:
+        r_grid = np.linspace(0.01, 0.29, 400)
+    fig, ax = plt.subplots(figsize=(6, 4.5))
+    for label, J in models.items():
+        ax.plot(r_grid, J.J1(r_grid), label=label)
+    ax.axhline(0.0, color="grey", lw=0.5)
+    ax.set_xlabel(r"$r$")
+    ax.set_ylabel(r"$J_1(r)$ [mol/(cm·s)]")
+    ax.set_title("Fig. 3 — $J_1(r) = \\Gamma_{\\mathrm{conc}} + \\Gamma_{\\mathrm{strain}}$")
+    ax.legend()
+    fig.tight_layout()
+    return fig, ax
