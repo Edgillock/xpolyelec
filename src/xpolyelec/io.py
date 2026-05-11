@@ -19,8 +19,7 @@ def _xy(df: pd.DataFrame, xcol: str, ycol: str) -> np.ndarray:
 def load_csv(path: str | Path, prop: str, config: Config | None = None) -> np.ndarray:
     """Load a single-property CSV.
 
-    Parameters
-    ----------
+    Parameters:
     path : str or Path
         CSV file on disk.
     prop : str
@@ -91,10 +90,10 @@ def load_combined(path: str | Path) -> dict[str, np.ndarray]:
 def load(source: str | Path | dict[str, str | Path], config: Config | None = None) -> dict[str, np.ndarray]:
     """High-level entry point: auto-detect format.
 
-    ``source`` may be:
-        * A directory → :func:`load_directory`
-        * A dict of ``{prop: path}`` → loaded piecewise via :func:`load_csv`
-        * A file → :func:`load_combined`
+    source may be:
+        A directory → :func:`load_directory`
+        A dict of ``{prop: path}`` → loaded piecewise via :func:`load_csv`
+        A file → :func:`load_combined`
     """
     if isinstance(source, dict):
         return {prop: load_csv(path, prop, config=config) for prop, path in source.items()}

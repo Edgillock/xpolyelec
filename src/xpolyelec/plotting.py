@@ -124,3 +124,25 @@ def plot_fig3(
     ax.legend()
     fig.tight_layout()
     return fig, ax
+
+# ----------------------------------------------------------------------
+# Fig. 4: r(x/L) and lambda(x/L)
+# ----------------------------------------------------------------------
+def plot_fig4(profiles: dict[str, Profile]):
+    """Overlay r(x/L) and lambda(x/L) for one or more profiles."""
+    fig, axs = plt.subplots(1, 2, figsize=(10, 4))
+    for label, prof in profiles.items():
+        axs[0].plot(prof.x_over_L, prof.r, label=label)
+        axs[1].plot(prof.x_over_L, prof.lam, label=label)
+    axs[0].set_xlabel(r"$x/L$")
+    axs[0].set_ylabel(r"$r(x/L)$")
+    axs[0].set_title("Fig. 4B — concentration profile")
+    axs[0].legend(fontsize=8)
+
+    axs[1].set_xlabel(r"$x/L$")
+    axs[1].set_ylabel(r"$\lambda(x/L)$")
+    axs[1].set_title("Fig. 4C — local extension")
+    axs[1].axhline(1.0, color="grey", lw=0.5)
+    axs[1].legend(fontsize=8)
+    fig.tight_layout()
+    return fig, axs
