@@ -30,7 +30,7 @@ def plot_fig2(
 ):
     """Reproduce Fig. 2: rho_el, kappa, rho_plus, D, U, t_-^0 vs r.
 
-    ``raw_data`` (optional) maps property name → (2, n) array of experimental
+    raw_data (optional) maps property name → (2, n) array of experimental
     (x, y) points to overlay as scatter.
     """
     if r_grid is None:
@@ -146,3 +146,46 @@ def plot_fig4(profiles: dict[str, Profile]):
     axs[1].legend(fontsize=8)
     fig.tight_layout()
     return fig, axs
+
+# ----------------------------------------------------------------------
+# Fig. 5: J2(r)
+# ----------------------------------------------------------------------
+def plot_fig5(models: dict[str, JFunctions], r_grid: np.ndarray | None = None):
+    if r_grid is None:
+        r_grid = np.linspace(0.01, 0.29, 400)
+    fig, ax = plt.subplots(figsize=(6, 4.5))
+    for label, J in models.items():
+        ax.plot(r_grid, J.J2(r_grid), label=label)
+    ax.axhline(0.0, color="grey", lw=0.5)
+    ax.set_xlabel(r"$r$")
+    ax.set_ylabel(r"$J_2(r)$ [V]")
+    ax.set_title(r"Fig. 5 — $J_2(r)$ (concentration + strain overpotential integrand)")
+    ax.legend()
+    fig.tight_layout()
+    return fig, ax
+
+# ----------------------------------------------------------------------
+# Fig. 6: Δφ decomposition
+# ----------------------------------------------------------------------
+def plot_fig6(potentials: dict[str, dict[str, float]]):
+    """Bar-style decomposition of phi_ohmic, phi_conc, phi_strain, phi_total.
+
+    potentials maps model label → {"ohmic":..., "conc":..., "strain":...,
+    "total":...} in V/cm.
+    """
+    labels = list(potentials.keys())
+    components = ["ohmic", "conc", "strain", "total"]
+    x = np.arange(len(labels))
+    width = 0.2
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    for i, comp in enumerate(components):
+        vals = [potentials[m].get(comp, 0.0) for m in labels]
+        ax.bar(x + (i - 1.5) * width, vals, width, label=comp)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylabel(r"$\Delta\phi / L$ [V/cm]")
+    ax.set_title("Fig. 6 — Potential-drop decomposition")
+    ax.axhline(0.0, color="grey", lw=0.5)
+    ax.legend()
+    fig.tight_layout()
+    return fig, ax
