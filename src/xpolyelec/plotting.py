@@ -189,3 +189,26 @@ def plot_fig6(potentials: dict[str, dict[str, float]]):
     ax.legend()
     fig.tight_layout()
     return fig, ax
+
+# ----------------------------------------------------------------------
+# Fig. 7: current-voltage relationship
+# ----------------------------------------------------------------------
+def plot_fig7(
+    curves: dict[str, IVCurve],
+    experimental: np.ndarray | None = None,
+):
+    """Overlay Δφ_ss/L vs iL for one or more IVCurves.
+
+    ``experimental`` (optional): (2, n) array of (iL, Δφ/L) measured points.
+    """
+    fig, ax = plt.subplots(figsize=(6, 4.5))
+    for label, c in curves.items():
+        ax.plot(c.iL, c.delta_phi_total, "--", label=label)
+    if experimental is not None:
+        ax.plot(experimental[0], experimental[1], "ko", mfc="k", label="Experiment")
+    ax.set_xlabel(r"$iL$ [A/cm]")
+    ax.set_ylabel(r"$\Delta\phi_{ss}$ [V]")
+    ax.set_title("Fig. 7 — Current-voltage relationship")
+    ax.legend()
+    fig.tight_layout()
+    return fig, ax
