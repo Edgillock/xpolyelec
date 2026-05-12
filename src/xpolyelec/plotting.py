@@ -165,7 +165,7 @@ def plot_fig5(models: dict[str, JFunctions], r_grid: np.ndarray | None = None):
     return fig, ax
 
 # ----------------------------------------------------------------------
-# Fig. 6: Δφ decomposition
+# Fig. 6: Delta Phi decomposition
 # ----------------------------------------------------------------------
 def plot_fig6(potentials: dict[str, dict[str, float]]):
     """Bar-style decomposition of phi_ohmic, phi_conc, phi_strain, phi_total.
@@ -197,7 +197,7 @@ def plot_fig7(
     curves: dict[str, IVCurve],
     experimental: np.ndarray | None = None,
 ):
-    """Overlay phi_ss/L vs iL for one or more IVCurves.
+    """Overlay phi_ss/L vs iL for one or more IV Curves.
 
     experimental (optional): (2, n) array of (iL, phi/L) measured points.
     """
