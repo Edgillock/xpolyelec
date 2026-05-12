@@ -197,9 +197,9 @@ def plot_fig7(
     curves: dict[str, IVCurve],
     experimental: np.ndarray | None = None,
 ):
-    """Overlay Δφ_ss/L vs iL for one or more IVCurves.
+    """Overlay phi_ss/L vs iL for one or more IVCurves.
 
-    ``experimental`` (optional): (2, n) array of (iL, Δφ/L) measured points.
+    experimental (optional): (2, n) array of (iL, phi/L) measured points.
     """
     fig, ax = plt.subplots(figsize=(6, 4.5))
     for label, c in curves.items():
