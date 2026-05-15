@@ -38,7 +38,7 @@ class TransportProperties:
 
     Parameters:
     kappa, rho_plus, D, U, rho_el : Fit or CustomFit
-        Fitted functions of ``r`` (or ``ln m`` for ``U``).
+        Fitted functions of r (or ln m for U).
     M_EO, M_LiTFSI : float
         Molecular weights (g/mol).
     F, R, T : float
