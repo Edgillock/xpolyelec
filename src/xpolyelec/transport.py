@@ -61,9 +61,9 @@ class TransportProperties:
     # ------------------------------------------------------------------
     @classmethod
     def from_config(cls, config: Config, overrides: dict[str, Fit | CustomFit] | None = None) -> "TransportProperties":
-        """Build a TransportProperties from ``config.fits`` + physical constants.
+        """Build a TransportProperties from config.fits + physical constants.
 
-        ``overrides`` maps property name → Fit-like, e.g. a CustomFit the user
+        overrides maps property name to Fit-like, e.g. a CustomFit the user
         constructed programmatically.
         """
         fits_cfg = config.get("fits")
