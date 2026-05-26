@@ -1,14 +1,14 @@
 """Concentration-dependent transport and thermodynamic properties.
 
 Bundles the four measured functions (kappa, rho_plus, D, U) plus the
-electrolyte density fit into a single object for downstream solver 
-Includes:
+electrolyte density fit into a single object that downstream solver code
+can query cheaply. Provides:
 
-r -> c(r) conversion via Eq. 5 and the density fit (Eq. 34).
-r -> m(r) via r = m * M_EO  → m = r / M_EO.
-r -> (dU/d ln m)(r) by chain rule, needed by Eqs. 6, 7, 22a, 22b.
-r -> t_minus_0(r)    Eq. 6 (solvent-frame anion transference number).
-r -> thermo_factor(r) Eq. 7 (1 + d ln gamma_+- / d ln m).
+c(r) via Eq. 5 and the density fit (Eq. 34).
+m(r) via r = m * M_EO  → m = r / M_EO.
+(dU/d ln m)(r) by chain rule, needed by Eqs. 6, 7, 22a, 22b.
+t_plus_0(r)    Eq. 6 (solvent-frame anion transference number).
+thermo_factor(r) Eq. 7 (1 + d ln gamma_+- / d ln m).
 """
 from __future__ import annotations
 
@@ -37,6 +37,7 @@ class TransportProperties:
     """Container for all concentration-dependent property fits.
 
     Parameters:
+    
     kappa, rho_plus, D, U, rho_el : Fit or CustomFit
         Fitted functions of r (or ln m for U).
     M_EO, M_LiTFSI : float
@@ -63,7 +64,7 @@ class TransportProperties:
     def from_config(cls, config: Config, overrides: dict[str, Fit | CustomFit] | None = None) -> "TransportProperties":
         """Build a TransportProperties from config.fits + physical constants.
 
-        overrides maps property name to Fit-like, e.g. a CustomFit the user
+        overrides maps property name → Fit-like, e.g. a CustomFit the user
         constructed programmatically.
         """
         fits_cfg = config.get("fits")
@@ -89,8 +90,8 @@ class TransportProperties:
         """Salt molality m (kg/mol^{-1} as used by paper Eq. 38).
 
         From r = m * M_EO where M_EO has units g/mol, so molality in mol/kg is
-        m = r * 1000 / M_EO. From paper Eq. 38, m is in
-        kg/mol (= mol/kg). use the paper's units.
+        m = r * 1000 / M_EO. Following the paper Eq. 38 convention m is in
+        kg/mol (= mol/kg). We use the paper's units.
         """
         return np.asarray(r, dtype=float) * 1000.0 / self.M_EO
 
@@ -107,7 +108,7 @@ class TransportProperties:
 
         For a binary salt + polymer solvent under the paper's approximations,
         c_T ≈ c + c_0 where c_0 is the monomer concentration. The paper uses
-        c_T/c_0 ≈ 1 / (v̄_m * n_m / (n_m*v̄_m + n_s*v̄_s)) for the thermodynamic
+        c_T/c_0 ≈ 1 / (v_m * n_m / (n_m*v̄_m + n_s*v̄_s)) for the thermodynamic
         factor. Downstream code only needs the ratio c_T/c_0 which cancels with
         n_m accounting, so we provide a convenience routine.
         """
@@ -136,7 +137,7 @@ class TransportProperties:
     def thermo_factor(self, r):
         """1 + d ln gamma_+- / d ln m (dimensionless) via Eq. 7.
 
-            (1 + d ln g/ d ln m) = kappa(r) * (dU/d ln m)^2 / [ 2 R T D(r) c(r) (1/rho_plus - 1)^2 ]
+        (1 + d ln g/ d ln m) = kappa(r) * (dU/d ln m)^2 / [ 2 R T D(r) c(r) (1/rho_plus - 1)^2 ]
 
         Valid only where rho_plus < 1 (physical).
         """
@@ -152,21 +153,29 @@ class TransportProperties:
         denominator *= 1.0e-3  # mol/L -> mol/cm^3
         return numerator / denominator
 
-    def t_minus_0(self, r):
-        """Anion transference number w.r.t. solvent velocity (Eq. 6).
+    def t_plus_0(self, r):
+        """Cation transference number w.r.t. solvent velocity (Patel Eq. 6).
 
-            t_-^0 = 1 - F D(r) c(r) (dU/dlnm) (1 - 1/rho_plus) / kappa(r)
+        Newman-style identity:
 
-        Eq. 6 rearranged. use the algebraic
-        rearrangement that is self-consistent with Eq. 7.
+        t_+^0 = 1 - F^2 D(r) c(r) (1 - 1/rho_+)^2 (1 + Theta) / [kappa(r) R T]
+
+        Uses thermo_factor(r) for (1 + Theta). Negative values of
+        t_+^0 are physical for binary polymer electrolytes at moderate
+        concentrations (cf. Pesko et al. 2017, Patel et al. 2025 Fig. 2F).
         """
         r_arr = np.asarray(r, dtype=float)
         rp = np.asarray(self.rho_plus(r_arr))
         rp_safe = np.where(np.isclose(rp, 0.0), 1.0e-9, rp)
         c_mol_cm3 = self.c(r_arr) * 1.0e-3
-        term = self.F * self.D(r_arr) * c_mol_cm3 * self.dU_dlnm(r_arr) * (1.0 - 1.0 / rp_safe)
-        return 1.0 - term / self.kappa(r_arr)
+        kappa_safe = np.where(np.isclose(self.kappa(r_arr), 0.0), 1.0e-30, self.kappa(r_arr))
+        tf = self.thermo_factor(r_arr)
+        term = (
+            self.F ** 2 * self.D(r_arr) * c_mol_cm3 * (1.0 - 1.0 / rp_safe) ** 2 * tf
+            / (kappa_safe * self.R * self.T)
+        )
+        return 1.0 - term
 
-    def t_plus_0(self, r):
-        """Cation transference number w.r.t. solvent velocity = 1 - t_-^0."""
-        return 1.0 - self.t_minus_0(r)
+    def t_minus_0(self, r):
+        """Anion transference number w.r.t. solvent velocity = 1 - t_+^0."""
+        return 1.0 - self.t_plus_0(r)
