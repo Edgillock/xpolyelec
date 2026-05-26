@@ -88,10 +88,8 @@ class TransportProperties:
     # ------------------------------------------------------------------
     def m(self, r):
         """Salt molality m (kg/mol^{-1} as used by paper Eq. 38).
-
-        From r = m * M_EO where M_EO has units g/mol, so molality in mol/kg is
-        m = r * 1000 / M_EO. Following the paper Eq. 38 convention m is in
-        kg/mol (= mol/kg). We use the paper's units.
+        Following the paper Eq. 38 convention m is in
+        kg/mol (= mol/kg). use the paper's units.
         """
         return np.asarray(r, dtype=float) * 1000.0 / self.M_EO
 
@@ -106,8 +104,7 @@ class TransportProperties:
     def c_T(self, r):
         """Total solution concentration (Eq. 3 uses c_T/c_0; approximated as 1/v_bar_avg).
 
-        For a binary salt + polymer solvent under the paper's approximations,
-        c_T ≈ c + c_0 where c_0 is the monomer concentration. The paper uses
+        paper uses:
         c_T/c_0 ≈ 1 / (v_m * n_m / (n_m*v̄_m + n_s*v̄_s)) for the thermodynamic
         factor. Downstream code only needs the ratio c_T/c_0 which cancels with
         n_m accounting, so we provide a convenience routine.
