@@ -1,13 +1,11 @@
 """matplotlib reproductions of Figs. 2-7 from Patel 2025.
 
-Figures:
-
-plot_fig2:  transport property fits vs r   (6 sub-panels)
-plot_fig3:  J1(r) for chosen models        (overlay)
-plot_fig4:  r(x/L) profile + lambda(x/L)
-plot_fig5:  J2(r) for chosen models        (overlay)
-plot_fig6:  phi/L decomposition vs x/L
-plot_fig7:  phi_ss/L vs iL  (current-voltage relationship)
+plot_fig2  transport property fits vs r   (6 sub-panels)
+plot_fig3  J1(r) for chosen models        (overlay)
+plot_fig4  r(x/L) profile + lambda(x/L)
+plot_fig5  J2(r) for chosen models        (overlay)
+plot_fig6  phi/L decomposition vs x/L
+plot_fig7  phi_ss/L vs iL  (current-voltage relationship)
 """
 from __future__ import annotations
 
@@ -104,6 +102,7 @@ def plot_fig2(
     fig.tight_layout()
     return fig, axs
 
+
 # ----------------------------------------------------------------------
 # Fig. 3: J1(r)
 # ----------------------------------------------------------------------
@@ -124,6 +123,7 @@ def plot_fig3(
     ax.legend()
     fig.tight_layout()
     return fig, ax
+
 
 # ----------------------------------------------------------------------
 # Fig. 4: r(x/L) and lambda(x/L)
@@ -147,6 +147,7 @@ def plot_fig4(profiles: dict[str, Profile]):
     fig.tight_layout()
     return fig, axs
 
+
 # ----------------------------------------------------------------------
 # Fig. 5: J2(r)
 # ----------------------------------------------------------------------
@@ -164,22 +165,31 @@ def plot_fig5(models: dict[str, JFunctions], r_grid: np.ndarray | None = None):
     fig.tight_layout()
     return fig, ax
 
+
 # ----------------------------------------------------------------------
-# Fig. 6: Delta Phi decomposition
+# Fig. 6: Δφ decomposition
 # ----------------------------------------------------------------------
 def plot_fig6(potentials: dict[str, dict[str, float]]):
-    """Bar-style decomposition of phi_ohmic, phi_conc, phi_strain, phi_total.
+    """decomposition of phi_ohmic, phi_conc, phi_strain, phi_total.
 
     potentials maps model label → {"ohmic":..., "conc":..., "strain":...,
     "total":...} in V/cm.
     """
     labels = list(potentials.keys())
     components = ["ohmic", "conc", "strain", "total"]
+
+    def _get(p, comp):
+        # Accept either a dict {"ohmic":..,} or a PotentialDrop dataclass
+        # with attributes delta_phi_ohmic / _conc / _strain / _total.
+        if isinstance(p, dict):
+            return p.get(comp, 0.0)
+        return float(getattr(p, f"delta_phi_{comp}", 0.0) or 0.0)
+
     x = np.arange(len(labels))
     width = 0.2
     fig, ax = plt.subplots(figsize=(7, 4.5))
     for i, comp in enumerate(components):
-        vals = [potentials[m].get(comp, 0.0) for m in labels]
+        vals = [_get(potentials[m], comp) for m in labels]
         ax.bar(x + (i - 1.5) * width, vals, width, label=comp)
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
@@ -190,6 +200,7 @@ def plot_fig6(potentials: dict[str, dict[str, float]]):
     fig.tight_layout()
     return fig, ax
 
+
 # ----------------------------------------------------------------------
 # Fig. 7: current-voltage relationship
 # ----------------------------------------------------------------------
@@ -197,7 +208,7 @@ def plot_fig7(
     curves: dict[str, IVCurve],
     experimental: np.ndarray | None = None,
 ):
-    """Overlay phi_ss/L vs iL for one or more IV Curves.
+    """Overlay phi_ss/L vs iL for one or more IVCurves.
 
     experimental (optional): (2, n) array of (iL, phi/L) measured points.
     """
