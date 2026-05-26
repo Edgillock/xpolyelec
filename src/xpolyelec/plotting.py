@@ -26,9 +26,9 @@ def plot_fig2(
     raw_data: dict[str, np.ndarray] | None = None,
     r_grid: np.ndarray | None = None,
 ):
-    """Reproduce Fig. 2: rho_el, kappa, rho_plus, D, U, t_-^0 vs r.
+    """Reproduce Fig. 2: rho_el, kappa, rho_plus, D, U, t_+^0 vs r.
 
-    raw_data (optional) maps property name → (2, n) array of experimental
+    ``raw_data`` (optional) maps property name → (2, n) array of experimental
     (x, y) points to overlay as scatter.
     """
     if r_grid is None:
@@ -90,12 +90,12 @@ def plot_fig2(
     ax.set_title("E")
     ax.legend(fontsize=8)
 
-    # F: t_-^0
+    # F: t_+^0 (cation transference number w.r.t. solvent velocity, Eq. 6)
     ax = axs[1, 2]
-    ax.plot(r_grid, transport.t_minus_0(r_grid), "k--", label=r"$t_-^0(r)$")
+    ax.plot(r_grid, transport.t_plus_0(r_grid), "k--", label=r"$t_+^0(r)$")
     ax.axhline(0.0, color="grey", lw=0.5)
     ax.set_xlabel(r"$r$")
-    ax.set_ylabel(r"$t_-^0$")
+    ax.set_ylabel(r"$t_+^0$")
     ax.set_title("F")
     ax.legend(fontsize=8)
 
@@ -170,7 +170,7 @@ def plot_fig5(models: dict[str, JFunctions], r_grid: np.ndarray | None = None):
 # Fig. 6: Δφ decomposition
 # ----------------------------------------------------------------------
 def plot_fig6(potentials: dict[str, dict[str, float]]):
-    """decomposition of phi_ohmic, phi_conc, phi_strain, phi_total.
+    """Bar-style decomposition of phi_ohmic, phi_conc, phi_strain, pih_total.
 
     potentials maps model label → {"ohmic":..., "conc":..., "strain":...,
     "total":...} in V/cm.
@@ -223,3 +223,4 @@ def plot_fig7(
     ax.legend()
     fig.tight_layout()
     return fig, ax
+
