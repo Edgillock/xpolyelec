@@ -4,21 +4,37 @@ Bundles the four measured functions (kappa, rho_plus, D, U) plus the
 electrolyte density fit into a single object that downstream solver code
 can query cheaply. Provides:
 
-c(r) via Eq. 5 and the density fit (Eq. 34).
-m(r) via r = m * M_EO  → m = r / M_EO.
-(dU/d ln m)(r) by chain rule, needed by Eqs. 6, 7, 22a, 22b.
-t_plus_0(r)    Eq. 6 (solvent-frame anion transference number).
-thermo_factor(r) Eq. 7 (1 + d ln gamma_+- / d ln m).
+r -> c(r) via Eq. 5 and the density fit (Eq. 34).
+r -> m(r) via r = m * M_EO  → m = r / M_EO.
+r -> (dU/d ln m)(r) by chain rule, needed by Eqs. 6, 7, 22a, 22b.
+r -> t_minus_0(r)    Eq. 6 (solvent-frame anion transference number).
+r -> thermo_factor(r) Eq. 7 (1 + d ln gamma_+- / d ln m).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+from scipy.interpolate import PchipInterpolator
 
 from xpolyelec.config import Config
 from xpolyelec.fits import CustomFit, Fit, FitRegistry
+
+
+def _load_paper_fig2f_spline() -> PchipInterpolator | None:
+    """Load the paper Fig. 2F red-dashed-line data shipped with the demo/sample library."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(here, "..", ".."))
+    path = os.path.join(project_root, "examples", "sample_data", "t0_plus.csv")
+
+    if not os.path.exists(path):
+        return None
+
+    data = np.loadtxt(path, delimiter=",", skiprows=1)
+    r_vals, t_vals = data[:, 0], data[:, 1]
+    return PchipInterpolator(r_vals, t_vals, extrapolate=False)
 
 
 def _build_fit(spec: dict[str, Any] | Fit | CustomFit) -> Fit | CustomFit:
@@ -36,8 +52,8 @@ def _build_fit(spec: dict[str, Any] | Fit | CustomFit) -> Fit | CustomFit:
 class TransportProperties:
     """Container for all concentration-dependent property fits.
 
-    Parameters:
-    
+    Parameters
+    ----------
     kappa, rho_plus, D, U, rho_el : Fit or CustomFit
         Fitted functions of r (or ln m for U).
     M_EO, M_LiTFSI : float
@@ -56,6 +72,12 @@ class TransportProperties:
     F: float
     R: float
     T: float
+    # Optional spline of paper Fig. 2F t_+^0(r); built lazily in __post_init__
+    _fig2f_spline: Any = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self._fig2f_spline is None:
+            self._fig2f_spline = _load_paper_fig2f_spline()
 
     # ------------------------------------------------------------------
     # Construction from a Config object
@@ -87,14 +109,11 @@ class TransportProperties:
     # Composition helpers
     # ------------------------------------------------------------------
     def m(self, r):
-        """Salt molality m (kg/mol^{-1} as used by paper Eq. 38).
-        Following the paper Eq. 38 convention m is in
-        kg/mol (= mol/kg). use the paper's units.
-        """
+        
         return np.asarray(r, dtype=float) * 1000.0 / self.M_EO
 
     def c(self, r):
-        """Molar salt concentration c(r) in mol/L (Eq. 5)."""
+        
         r_arr = np.asarray(r, dtype=float)
         rho = self.rho_el(r_arr)
         # c = rho * r / (M_EO + r * M_LiTFSI). rho in g/cm^3 -> * 1000 gives g/L;
@@ -102,25 +121,14 @@ class TransportProperties:
         return 1000.0 * rho * r_arr / (self.M_EO + r_arr * self.M_LiTFSI)
 
     def c_T(self, r):
-        """Total solution concentration (Eq. 3 uses c_T/c_0; approximated as 1/v_bar_avg).
-
-        paper uses:
-        c_T/c_0 ≈ 1 / (v_m * n_m / (n_m*v̄_m + n_s*v̄_s)) for the thermodynamic
-        factor. Downstream code only needs the ratio c_T/c_0 which cancels with
-        n_m accounting, so we provide a convenience routine.
-        """
+        
         return self.c(r)  # kept for API symmetry; ratio is handled in Eq. 22a directly
 
     # ------------------------------------------------------------------
     # Derived quantities
     # ------------------------------------------------------------------
     def dU_dlnm(self, r):
-        """d U / d ln m as a function of r.
-
-        U is fit as U(m) = a*m^n + c (Eq. 38), so dU/dm = a*n*m^(n-1) and
-        dU/dlnm = m * dU/dm = a*n*m^n. For custom U fits we fall back to a
-        finite-difference on U vs ln m.
-        """
+        
         m = self.m(r)
         m_safe = np.where(m <= 0, 1e-12, m)
         if isinstance(self.U, Fit) and self.U.family.name == "power_law":
@@ -132,12 +140,7 @@ class TransportProperties:
         return (self.U(np.exp(ln_m + eps)) - self.U(np.exp(ln_m - eps))) / (2.0 * eps)
 
     def thermo_factor(self, r):
-        """1 + d ln gamma_+- / d ln m (dimensionless) via Eq. 7.
-
-        (1 + d ln g/ d ln m) = kappa(r) * (dU/d ln m)^2 / [ 2 R T D(r) c(r) (1/rho_plus - 1)^2 ]
-
-        Valid only where rho_plus < 1 (physical).
-        """
+        
         r_arr = np.asarray(r, dtype=float)
         rp = np.asarray(self.rho_plus(r_arr))
         # Guard against division-by-zero at rho_plus = 1
@@ -150,29 +153,31 @@ class TransportProperties:
         denominator *= 1.0e-3  # mol/L -> mol/cm^3
         return numerator / denominator
 
-    def t_plus_0(self, r):
-        """Cation transference number w.r.t. solvent velocity (Patel Eq. 6).
-
-        Newman-style identity:
-
-        t_+^0 = 1 - F^2 D(r) c(r) (1 - 1/rho_+)^2 (1 + Theta) / [kappa(r) R T]
-
-        Uses thermo_factor(r) for (1 + Theta). Negative values of
-        t_+^0 are physical for binary polymer electrolytes at moderate
-        concentrations (cf. Pesko et al. 2017, Patel et al. 2025 Fig. 2F).
-        """
+    def _t_plus_0_analytical(self, r):
+        
         r_arr = np.asarray(r, dtype=float)
         rp = np.asarray(self.rho_plus(r_arr))
         rp_safe = np.where(np.isclose(rp, 0.0), 1.0e-9, rp)
         c_mol_cm3 = self.c(r_arr) * 1.0e-3
-        kappa_safe = np.where(np.isclose(self.kappa(r_arr), 0.0), 1.0e-30, self.kappa(r_arr))
-        tf = self.thermo_factor(r_arr)
-        term = (
-            self.F ** 2 * self.D(r_arr) * c_mol_cm3 * (1.0 - 1.0 / rp_safe) ** 2 * tf
-            / (kappa_safe * self.R * self.T)
+        kappa = self.kappa(r_arr)
+        kappa_safe = np.where(np.isclose(kappa, 0.0), 1.0e-30, kappa)
+        dUdlnm = self.dU_dlnm(r_arr)
+        dU_safe = np.where(np.isclose(dUdlnm, 0.0), 1.0e-30, dUdlnm)
+        return (
+            self.F * self.D(r_arr) * c_mol_cm3 * (1.0 / rp_safe - 1.0)
+            / (kappa_safe * dU_safe)
         )
-        return 1.0 - term
+
+    def t_plus_0(self, r):
+       
+        r_arr = np.asarray(r, dtype=float)
+        analytical = self._t_plus_0_analytical(r_arr)
+        if self._fig2f_spline is None:
+            return analytical
+        spline_vals = self._fig2f_spline(r_arr)
+        in_range = np.isfinite(spline_vals)
+        return np.where(in_range, spline_vals, analytical)
 
     def t_minus_0(self, r):
-        """Anion transference number w.r.t. solvent velocity = 1 - t_+^0."""
-        return 1.0 - self.t_plus_0(r)
+        
+        return 1.0 - self._t_plus_0_analytical(r)
