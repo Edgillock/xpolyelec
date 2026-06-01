@@ -2,9 +2,12 @@
 
 Implements Eqs. 22-27 of Patel 2025:
 
-build_J1_and_J2 → callable J1(r), J2(r) given a StrainModel + StrainContext + TransportProperties.
-solve_r_profile → three-step iterative procedure that finds the
-r(x/L) profile for a target (ravg, iL).
+func: build_J1_and_J2 → callable J1(r), J2(r) given a StrainModel +
+  StrainContext + TransportProperties.
+func: solve_r_profile → three-step iterative procedure that finds the
+  r(x/L) profile for a target (ravg, iL).
+func: compute_potential_drop → Δφ_ohmic, Δφ_conc, Δφ_strain, Δφ_total.
+func: sweep_iL → current-voltage relationship over a range of iL.
 
 All code is pure numpy/scipy and has no dependency on the Simulation API.
 """
@@ -39,6 +42,18 @@ class JFunctions:
     Gamma_strain: Callable[[np.ndarray], np.ndarray]
 
 
+def _dc_dr_centred(transport: TransportProperties, r, h: float = 1.0e-5):
+    """Centred finite difference of c(r) (mol/L per unit r).
+
+    c(r) is closed-form smooth on r > 0; centred FD with h = 1e-5 is accurate
+    to ~10 decimal places and far cheaper than the symbolic chain rule
+    through rho_el(r).
+    """
+    r_arr = np.asarray(r, dtype=float)
+    h_arr = np.maximum(h, np.abs(r_arr) * h)
+    return (transport.c(r_arr + h_arr) - transport.c(r_arr - h_arr)) / (2.0 * h_arr)
+
+
 def build_J1_and_J2(
     transport: TransportProperties,
     strain_model: StrainModel,
@@ -46,34 +61,25 @@ def build_J1_and_J2(
 ) -> JFunctions:
     """Build callable J1(r), J2(r) from the transport properties + strain model.
 
-    Derivation from Patel 2025 Eqs. 4, 20-27:
+    For the Crosslink Model the strain piece (Eq. 22b) is added; it is
+    handled by Gamma_strain below.
 
-    For the Crosslink Model (Eqs. 20-22, 25), the strain contribution to the
-    electrolyte chemical potential mu_es adds the dimensionless piece
-    (1/(2RT)) * r * d mu_strain/dr * (1/(1+Theta))`` inside the bracket in Eq. 22a; 
-    absorb it as an additive correction to Gamma_conc:
-    Gamma_strain(r) = Gamma_conc^Baseline(r) * ( r * d mu_strain / dr ) / ( 2 R T (1 + Theta) )
-
-    so J1 = Gamma_conc * (1 + r * d mu_strain/dr / (2 R T (1+Theta))).
-
-    For J2 (Eq. 27), the concentration piece is (2RT/F) * (1 - t_-^0) *
-    (1 + Theta) / r and the strain piece is t_-^0 * d mu_strain / dr / F.
+    J2 (Eq. 27): (2RT/F) (1 - t_-^0)(1 + Theta) / r  +  strain term.
     """
     RT = transport.R * transport.T
     F = transport.F
 
-
     def _gamma_conc_baseline(r):
         r = np.asarray(r, dtype=float)
-        c_mol_cm3 = transport.c(r) * 1.0e-3  # mol/L -> mol/cm^3
+        # c(r) returns mol/L; convert to mol/cm^3 to be consistent with
+        # D [cm^2/s] and kappa [S/cm].
+        dc_dr_mol_cm3 = _dc_dr_centred(transport, r) * 1.0e-3
         D = transport.D(r)
+        tf = transport.thermo_factor(r)                # (1 + Theta)
         t_minus = transport.t_minus_0(r)
-        tf = transport.thermo_factor(r)
-        # Guard against t_minus or r approaching 0
         t_safe = np.where(np.abs(t_minus) < 1e-12, 1e-12, t_minus)
-        r_safe = np.where(np.abs(r) < 1e-12, 1e-12, r)
-        # Gamma_conc^Baseline = D * c * (1 + Theta) / (r * t_-^0)
-        return D * c_mol_cm3 * tf / (r_safe * t_safe)
+        # Paper Eq. 4 → Gamma_conc^Baseline = D (1+Theta) dc/dr / t_-^0
+        return D * tf * dc_dr_mol_cm3 / t_safe
 
     def Gamma_conc(r):
         return _gamma_conc_baseline(r)
@@ -84,7 +90,6 @@ def build_J1_and_J2(
             return np.zeros_like(r)
         gc = _gamma_conc_baseline(r)
         tf = transport.thermo_factor(r)
-        # Protect against (1+Theta) -> 0 numerical noise
         denom = 2.0 * RT * np.where(np.abs(tf) < 1e-12, 1e-12, tf)
         dmu_dr = strain_model.d_mu_strain_d_r(r, ctx)
         return gc * (r * dmu_dr / denom)
@@ -106,6 +111,7 @@ def build_J1_and_J2(
         return conc_term + strain_term
 
     return JFunctions(J1=J1, J2=J2, Gamma_conc=Gamma_conc, Gamma_strain=Gamma_strain)
+
 
 # ----------------------------------------------------------------------
 # r(x/L) profile solver
@@ -147,16 +153,12 @@ def solve_r_profile(
     n_r_grid: int = 2001,
 ) -> Profile:
     """Three-step iterative procedure from Patel 2025 (fast inversion form).
-
     precompute J1 on a dense r-grid once, then use cumulative trapezoid
     integration to build F(r) = integral of J1 from r_min to r. For any trial
-    r0 (= r at x/L = 0), the profile satisfies：
+    r0 (= r at x/L = 0), the profile satisfies
 
-    F(r(x/L)) - F(r0) = -(iL/F) * (x/L)
+        F(r(x/L)) - F(r0) = -(iL/F) * (x/L)
 
-    which we invert by linear interpolation on F. Inversion is O(n); no
-    inner root-finding required. The outer step adjusts r0 via brentq until
-    the sample-average matches ravg.
     """
     xL = np.linspace(0.0, 1.0, n_points)
     r_min = max(1.0e-5, r0_bracket[0])
@@ -168,28 +170,23 @@ def solve_r_profile(
     # Guard against NaN / inf from singularities
     J1_vals = np.where(np.isfinite(J1_vals), J1_vals, 0.0)
 
-    # Cumulative F(r) = integral of J1 from r_min to r (trapezoid)
+    J1_abs = np.abs(J1_vals)
+    j1_scale = float(np.median(J1_abs[J1_abs > 0])) if (J1_abs > 0).any() else 0.0
+    if j1_scale > 0.0:
+        clip_hi = 1.0e3 * j1_scale
+        J1_abs = np.minimum(J1_abs, clip_hi)
+
     dr = np.diff(r_grid)
-    trap = 0.5 * (J1_vals[:-1] + J1_vals[1:]) * dr
+    trap = 0.5 * (J1_abs[:-1] + J1_abs[1:]) * dr
     F_vals = np.concatenate(([0.0], np.cumsum(trap)))
 
-    # Ensure F_vals is monotonic (required for interp). For J1 > 0 this is
-    # automatic; for Crosslink near singularities, local non-monotonicity can
-    # arise. We enforce monotonicity by masking out backsliding.
-    F_mono = np.maximum.accumulate(F_vals) if F_vals[-1] >= F_vals[0] else np.minimum.accumulate(F_vals)
-    # Strict uniqueness for interp:
-    _, unique_idx = np.unique(F_mono, return_index=True)
-    r_unique = r_grid[unique_idx]
-    F_unique = F_mono[unique_idx]
+    F_mono = np.maximum.accumulate(F_vals)
 
     def _profile_for_r0(r0: float) -> np.ndarray:
-        F_at_r0 = float(np.interp(r0, r_grid, F_vals))
-        target = F_at_r0 - (iL / F) * xL  # F(r(x/L)) values required
-        # Invert via linear interpolation on (F_unique, r_unique).
-        # np.interp requires the xp to be increasing; if F is decreasing we flip.
-        if F_unique[-1] >= F_unique[0]:
-            return np.interp(target, F_unique, r_unique, left=r_unique[0], right=r_unique[-1])
-        return np.interp(target, F_unique[::-1], r_unique[::-1], left=r_unique[-1], right=r_unique[0])
+        F_at_r0 = float(np.interp(r0, r_grid, F_mono))
+        target = F_at_r0 - (iL / F) * xL
+        return np.interp(target, F_mono, r_grid,
+                         left=r_grid[0], right=r_grid[-1])
 
     def _ravg_residual(r0: float) -> float:
         r_vals = _profile_for_r0(r0)
@@ -229,6 +226,7 @@ def solve_r_profile(
         converged=converged,
     )
 
+
 # ----------------------------------------------------------------------
 # Potential drop
 # ----------------------------------------------------------------------
@@ -253,12 +251,12 @@ def compute_potential_drop(
     quad_abs_tol: float = 1.0e-10,
     quad_rel_tol: float = 1.0e-8,
 ) -> PotentialDrop:
-    """Evaluate Δφ_ohmic, Δφ_conc, Δφ_strain from a solved r profile.
+    """Evaluate phi_ohmic, phi_conc, phi_strain from a solved r profile.
 
     Per Eqs. 26a-c:
-      Δφ_ohmic = iL * ∫_0^1 dx'/κ(r(x'))
-      Δφ_conc  = (2 RT/F) ∫_{r(0)}^{r(1)} (1 - t_-^0)(1 + d ln g/d ln m)/r dr
-      Δφ_strain = ∫_{r(0)}^{r(1)} t_-^0 * d mu_strain / dr / F * dr
+      phi_ohmic = iL * ∫_0^1 dx'/κ(r(x'))
+      phi_conc  = (2 RT/F) ∫_{r(0)}^{r(1)} (1 - t_-^0)(1 + d ln g/d ln m)/r dr
+      phi_strain = ∫_{r(0)}^{r(1)} t_-^0 * d mu_strain / dr / F * dr
 
     All quantities are per thickness L (V/cm).
     """
@@ -308,6 +306,7 @@ def compute_potential_drop(
         converged=profile.converged,
     )
 
+
 # ----------------------------------------------------------------------
 # iL sweep (current-voltage relationship)
 # ----------------------------------------------------------------------
@@ -337,7 +336,7 @@ def sweep_iL(
     quad_abs_tol: float = 1.0e-10,
     quad_rel_tol: float = 1.0e-8,
 ) -> IVCurve:
-    """Sweep iL → solve profile + compute Δφ for each value. Used for Fig. 7."""
+    """Sweep iL → solve profile + compute pih for each value. Used for Fig. 7."""
     iL_values = np.asarray(iL_values, dtype=float)
     dphi_tot = np.empty_like(iL_values)
     dphi_oh = np.empty_like(iL_values)
