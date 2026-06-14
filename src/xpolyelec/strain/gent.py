@@ -47,7 +47,7 @@ class GentStrain(StrainModel):
 
         numer = (phi_p0 * phi_p) ** 0.5 * (lam**4 - 1.0)
 
-        # Guard against lam == lam_crit singularity: clip denom near zero
+        # prevents lam == lam_crit singularity: clip denom near zero
         eps = 1.0e-14
         denom_safe = np.where(np.abs(denom) < eps, np.sign(denom) * eps, denom)
 
