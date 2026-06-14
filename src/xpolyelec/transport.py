@@ -143,14 +143,12 @@ class TransportProperties:
         
         r_arr = np.asarray(r, dtype=float)
         rp = np.asarray(self.rho_plus(r_arr))
-        # Guard against division-by-zero at rho_plus = 1
+        #against division-by-zero at rho_plus = 1
         rp_safe = np.where(np.isclose(rp, 1.0), 0.999999, rp)
         dUdlnm = self.dU_dlnm(r_arr)
         numerator = self.kappa(r_arr) * dUdlnm**2
         denominator = 2.0 * self.R * self.T * self.D(r_arr) * self.c(r_arr) * (1.0 / rp_safe - 1.0) ** 2
-        # Convert c from mol/L to mol/cm^3 for SI consistency with kappa [S/cm]:
-        # kappa [S/cm] = A/V/cm ; D [cm^2/s] ; c [mol/cm^3] ; dU [V] → dimensionless.
-        denominator *= 1.0e-3  # mol/L -> mol/cm^3
+        denominator *= 1.0e-3  
         return numerator / denominator
 
     def _t_plus_0_analytical(self, r):
