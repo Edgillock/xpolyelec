@@ -117,7 +117,7 @@ class TransportProperties:
         r_arr = np.asarray(r, dtype=float)
         rho = self.rho_el(r_arr)
         # c = rho * r / (M_EO + r * M_LiTFSI). rho in g/cm^3 -> * 1000 gives g/L;
-        # dividing by an effective M in g/mol gives mol/L.
+        # dividing by M in g/mol gives mol/L.
         return 1000.0 * rho * r_arr / (self.M_EO + r_arr * self.M_LiTFSI)
 
     def c_T(self, r):
