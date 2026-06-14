@@ -9,7 +9,7 @@ Three structural assumptions of the paper are exposed here as switches:
 
 1.kinematics: "affine_isotropic" (paper) vs. "uniaxial".
 2.phi_p_model: "paper" (phi_p = 1 - vs*c) vs. a user callable.
-3.lambda_crit: symmetric (Δ) vs. independent extension/contraction.
+3.lambda_crit: symmetric delta vs. independent extension/contraction.
 
 """
 from __future__ import annotations
