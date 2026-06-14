@@ -6,7 +6,7 @@ func: build_J1_and_J2 → callable J1(r), J2(r) given a StrainModel +
   StrainContext + TransportProperties.
 func: solve_r_profile → three-step iterative procedure that finds the
   r(x/L) profile for a target (ravg, iL).
-func: compute_potential_drop → Δφ_ohmic, Δφ_conc, Δφ_strain, Δφ_total.
+func: compute_potential_drop → phi_ohmic, phi_conc, phi_strain, phi_total.
 func: sweep_iL → current-voltage relationship over a range of iL.
 
 All code is pure numpy/scipy and has no dependency on the Simulation API.
