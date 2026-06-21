@@ -134,7 +134,7 @@ def solve_r_profile(
     *,
     iL: float,
     ravg: float,
-    n_points: int = 1001,
+    n_points: int = 201,
     r0_bracket: tuple[float, float] = (1.0e-4, 0.30),
     ravg_tol: float = 1.0e-6,
     max_iter: int = 80,

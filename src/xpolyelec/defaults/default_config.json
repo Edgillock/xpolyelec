@@ -28,6 +28,7 @@
         "mooney_rivlin_C_ratio": 0.0
     },
 
+    
     "fits": {
         "rho_el": {"form": "linear", "params": [2.29, 1.21]},
         "kappa":  {"form": "kappa_peak", "params": [0.01, 0.061]},
