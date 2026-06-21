@@ -239,15 +239,7 @@ def compute_potential_drop(
     quad_abs_tol: float = 1.0e-10,
     quad_rel_tol: float = 1.0e-8,
 ) -> PotentialDrop:
-    """Evaluate phi_ohmic, phi_conc, phi_strain from a solved r profile.
-
-    Per Eqs. 26a-c:
-      phi_ohmic = iL * ∫_0^1 dx'/κ(r(x'))
-      phi_conc  = (2 RT/F) ∫_{r(0)}^{r(1)} (1 - t_-^0)(1 + d ln g/d ln m)/r dr
-      phi_strain = ∫_{r(0)}^{r(1)} t_-^0 * d mu_strain / dr / F * dr
-
-    All quantities are per thickness L (V/cm).
-    """
+    """Evaluate phi_ohmic, phi_conc, phi_strain from a solved r profile."""
     xL = profile.x_over_L
     r_prof = profile.r
     iL = profile.iL
