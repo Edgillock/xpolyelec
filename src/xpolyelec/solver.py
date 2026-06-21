@@ -1,11 +1,7 @@
 """Core numerical pipeline.
 
-Implements Eqs. 22-27 of Patel 2025:
-
-func: build_J1_and_J2 → callable J1(r), J2(r) given a StrainModel +
-  StrainContext + TransportProperties.
-func: solve_r_profile → three-step iterative procedure that finds the
-  r(x/L) profile for a target (ravg, iL).
+func: build_J1_and_J2 → callable J1(r), J2(r) given a StrainModel + StrainContext + TransportProperties.
+func: solve_r_profile → three-step iterative procedure that finds the r(x/L) profile for a target (ravg, iL).
 func: compute_potential_drop → phi_ohmic, phi_conc, phi_strain, phi_total.
 func: sweep_iL → current-voltage relationship over a range of iL.
 
@@ -43,12 +39,7 @@ class JFunctions:
 
 
 def _dc_dr_centred(transport: TransportProperties, r, h: float = 1.0e-5):
-    """Centred finite difference of c(r) (mol/L per unit r).
-
-    c(r) is closed-form smooth on r > 0; centred FD with h = 1e-5 is accurate
-    to ~10 decimal places and far cheaper than the symbolic chain rule
-    through rho_el(r).
-    """
+    """Centred finite difference of c(r) (mol/L per unit r)."""
     r_arr = np.asarray(r, dtype=float)
     h_arr = np.maximum(h, np.abs(r_arr) * h)
     return (transport.c(r_arr + h_arr) - transport.c(r_arr - h_arr)) / (2.0 * h_arr)
@@ -155,10 +146,7 @@ def solve_r_profile(
     """Three-step iterative procedure from Patel 2025 (fast inversion form).
     precompute J1 on a dense r-grid once, then use cumulative trapezoid
     integration to build F(r) = integral of J1 from r_min to r. For any trial
-    r0 (= r at x/L = 0), the profile satisfies
-
-        F(r(x/L)) - F(r0) = -(iL/F) * (x/L)
-
+    r0 (= r at x/L = 0), the profile satisfies F(r(x/L)) - F(r0) = -(iL/F) * (x/L)
     """
     xL = np.linspace(0.0, 1.0, n_points)
     r_min = max(1.0e-5, r0_bracket[0])
