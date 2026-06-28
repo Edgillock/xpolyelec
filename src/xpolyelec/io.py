@@ -23,7 +23,7 @@ def load_csv(path: str | Path, prop: str, config: Config | None = None) -> np.nd
     path : str or Path
         CSV file on disk.
     prop : str
-        One of ``{'kappa', 'rho_plus', 'D', 'U', 'rho_el'}``.
+        One of {'kappa', 'rho_plus', 'D', 'U', 'rho_el'}.
     config : Config, optional
         Used to look up the expected column names. If omitted, defaults are
         used from the bundled config.
@@ -92,7 +92,7 @@ def load(source: str | Path | dict[str, str | Path], config: Config | None = Non
 
     source may be:
         A directory → :func:`load_directory`
-        A dict of ``{prop: path}`` → loaded piecewise via :func:`load_csv`
+        A dict of {prop: path} → loaded piecewise via :func:`load_csv`
         A file → :func:`load_combined`
     """
     if isinstance(source, dict):

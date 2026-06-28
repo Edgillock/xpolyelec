@@ -28,7 +28,7 @@ def plot_fig2(
 ):
     """Reproduce Fig. 2: rho_el, kappa, rho_plus, D, U, t_+^0 vs r.
 
-    ``raw_data`` (optional) maps property name → (2, n) array of experimental
+    raw_data (optional) maps property name → (2, n) array of experimental
     (x, y) points to overlay as scatter.
     """
     if r_grid is None:
