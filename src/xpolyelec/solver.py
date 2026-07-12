@@ -1,11 +1,15 @@
 """Core numerical pipeline.
 
-func: build_J1_and_J2 → callable J1(r), J2(r) given a StrainModel + StrainContext + TransportProperties.
-func: solve_r_profile → three-step iterative procedure that finds the r(x/L) profile for a target (ravg, iL).
-func: compute_potential_drop → phi_ohmic, phi_conc, phi_strain, phi_total.
-func: sweep_iL → current-voltage relationship over a range of iL.
-
-All code is pure numpy/scipy and has no dependency on the Simulation API.
+1. Gamma_strain now follows Eq. 22b's literal structure — c(r)*D(r)/(4*t_minus*(1+Theta))
+   scaling the strain chemical-potential derivative — instead of rescaling
+   Gamma_conc by r/(2RT). Old behaviour kept available via
+   `strain_form="rescaled"` for A/B comparison; new literal form is
+   `strain_form="literal"` (default).
+2. solve_r_profile's clipping is now adaptive: instead of a single global
+   1000x-median clip, we clip locally based on a rolling window so that
+   sharp-but-legitimate singularity shapes near lambda_crit aren't
+   flattened by whatever the global median happens to be elsewhere in
+   the r-range. Controlled by `local_clip_window` and `local_clip_factor`.
 """
 from __future__ import annotations
 
@@ -20,18 +24,8 @@ from xpolyelec.strain.base import StrainContext, StrainModel
 from xpolyelec.transport import TransportProperties
 
 
-# ----------------------------------------------------------------------
-# J1 and J2 builders
-# ----------------------------------------------------------------------
 @dataclass
 class JFunctions:
-    """Container for the two integrands J1(r) and J2(r).
-
-    J1 (Eq. 24) is integrated over r to produce the implicit r(x/L) profile.
-    J2 (Eq. 27) is integrated over r to produce the concentration + strain
-    overpotential.
-    """
-
     J1: Callable[[np.ndarray], np.ndarray]
     J2: Callable[[np.ndarray], np.ndarray]
     Gamma_conc: Callable[[np.ndarray], np.ndarray]
@@ -39,7 +33,6 @@ class JFunctions:
 
 
 def _dc_dr_centred(transport: TransportProperties, r, h: float = 1.0e-5):
-    """Centred finite difference of c(r) (mol/L per unit r)."""
     r_arr = np.asarray(r, dtype=float)
     h_arr = np.maximum(h, np.abs(r_arr) * h)
     return (transport.c(r_arr + h_arr) - transport.c(r_arr - h_arr)) / (2.0 * h_arr)
@@ -49,27 +42,18 @@ def build_J1_and_J2(
     transport: TransportProperties,
     strain_model: StrainModel,
     ctx: StrainContext,
+    strain_form: str = "literal",
 ) -> JFunctions:
-    """Build callable J1(r), J2(r) from the transport properties + strain model.
-
-    For the Crosslink Model the strain piece (Eq. 22b) is added; it is
-    handled by Gamma_strain below.
-
-    J2 (Eq. 27): (2RT/F) (1 - t_-^0)(1 + Theta) / r  +  strain term.
-    """
     RT = transport.R * transport.T
     F = transport.F
 
     def _gamma_conc_baseline(r):
         r = np.asarray(r, dtype=float)
-        # c(r) returns mol/L; convert to mol/cm^3 to be consistent with
-        # D [cm^2/s] and kappa [S/cm].
         dc_dr_mol_cm3 = _dc_dr_centred(transport, r) * 1.0e-3
         D = transport.D(r)
-        tf = transport.thermo_factor(r)                # (1 + Theta)
+        tf = transport.thermo_factor(r)
         t_minus = transport.t_minus_0(r)
         t_safe = np.where(np.abs(t_minus) < 1e-12, 1e-12, t_minus)
-        # Paper Eq. 4 → Gamma_conc^Baseline = D (1+Theta) dc/dr / t_-^0
         return D * tf * dc_dr_mol_cm3 / t_safe
 
     def Gamma_conc(r):
@@ -79,38 +63,42 @@ def build_J1_and_J2(
         r = np.asarray(r, dtype=float)
         if strain_model.name == "none":
             return np.zeros_like(r)
-        gc = _gamma_conc_baseline(r)
+
+        t_minus = transport.t_minus_0(r)
+        t_safe = np.where(np.abs(t_minus) < 1e-12, 1e-12, t_minus)
         tf = transport.thermo_factor(r)
-        denom = 2.0 * RT * np.where(np.abs(tf) < 1e-12, 1e-12, tf)
         dmu_dr = strain_model.d_mu_strain_d_r(r, ctx)
-        return gc * (r * dmu_dr / denom)
+
+        if strain_form == "literal":
+            c_mol_cm3 = transport.c(r) * 1.0e-3
+            D = transport.D(r)
+            denom = 4.0 * t_safe * np.where(np.abs(tf) < 1e-12, 1e-12, tf)
+            return -(c_mol_cm3 * D) / denom * (dmu_dr / RT)
+        elif strain_form == "rescaled":
+            gc = _gamma_conc_baseline(r)
+            denom = 2.0 * RT * np.where(np.abs(tf) < 1e-12, 1e-12, tf)
+            return gc * (r * dmu_dr / denom)
+        else:
+            raise ValueError(f"unknown strain_form: {strain_form!r}")
 
     def J1(r):
         return Gamma_conc(r) + Gamma_strain(r)
 
     def J2(r):
-        # Paper Eq. 27
         r = np.asarray(r, dtype=float)
         t_minus = transport.t_minus_0(r)
         tf = transport.thermo_factor(r)
-        # Concentration piece: (2RT/F) * (1 - t_-^0)(1 + Theta) / r
         conc_term = (2.0 * RT / F) * (1.0 - t_minus) * tf / r
         if strain_model.name == "none":
             return conc_term
-        # Strain piece: t_-^0 * d mu_strain / dr / F
         strain_term = t_minus * strain_model.d_mu_strain_d_r(r, ctx) / F
         return conc_term + strain_term
 
     return JFunctions(J1=J1, J2=J2, Gamma_conc=Gamma_conc, Gamma_strain=Gamma_strain)
 
 
-# ----------------------------------------------------------------------
-# r(x/L) profile solver
-# ----------------------------------------------------------------------
 @dataclass
 class Profile:
-    """Result of solve_r_profile."""
-
     x_over_L: np.ndarray
     r: np.ndarray
     lam: np.ndarray
@@ -121,11 +109,25 @@ class Profile:
     converged: bool
 
 
-def _integrate_J1(J1: Callable, r_lo: float, r_hi: float, abs_tol: float, rel_tol: float) -> float:
-    if r_hi <= r_lo:
-        return 0.0
-    val, _err = quad(J1, r_lo, r_hi, epsabs=abs_tol, epsrel=rel_tol, limit=200)
-    return float(val)
+def _rolling_clip(values: np.ndarray, window: int, factor: float) -> np.ndarray:
+    """Clip each point based on a local rolling median rather than a
+    single global median, so legitimate sharp peaks near singularities
+    keep more of their shape while still bounding runaway values.
+    """
+    n = len(values)
+    if n == 0:
+        return values
+    half = max(1, window // 2)
+    out = np.empty_like(values)
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        window_vals = values[lo:hi]
+        nz = window_vals[window_vals > 0]
+        local_med = float(np.median(nz)) if nz.size > 0 else 0.0
+        cap = factor * local_med if local_med > 0 else values[i]
+        out[i] = min(values[i], cap) if cap > 0 else values[i]
+    return out
 
 
 def solve_r_profile(
@@ -139,48 +141,45 @@ def solve_r_profile(
     ravg_tol: float = 1.0e-6,
     max_iter: int = 80,
     F: float = 96485.33212,
-    quad_abs_tol: float = 1.0e-10,   # kept for API compatibility; unused
-    quad_rel_tol: float = 1.0e-8,    # kept for API compatibility; unused
+    quad_abs_tol: float = 1.0e-10,
+    quad_rel_tol: float = 1.0e-8,
     n_r_grid: int = 2001,
+    use_local_clip: bool = True,
+    local_clip_window: int = 41,
+    local_clip_factor: float = 50.0,
+    global_clip_factor: float = 1.0e3,
 ) -> Profile:
-    """Three-step iterative procedure from Patel 2025 (fast inversion form).
-    precompute J1 on a dense r-grid once, then use cumulative trapezoid
-    integration to build F(r) = integral of J1 from r_min to r. For any trial
-    r0 (= r at x/L = 0), the profile satisfies F(r(x/L)) - F(r0) = -(iL/F) * (x/L)
-    """
     xL = np.linspace(0.0, 1.0, n_points)
     r_min = max(1.0e-5, r0_bracket[0])
     r_max = min(0.5, r0_bracket[1])
     r_grid = np.linspace(r_min, r_max, n_r_grid)
 
-    # Evaluate J1 across the grid (vectorised).
     J1_vals = np.asarray(J.J1(r_grid), dtype=float)
-    # Guard against NaN / inf from singularities
     J1_vals = np.where(np.isfinite(J1_vals), J1_vals, 0.0)
 
     J1_abs = np.abs(J1_vals)
-    j1_scale = float(np.median(J1_abs[J1_abs > 0])) if (J1_abs > 0).any() else 0.0
-    if j1_scale > 0.0:
-        clip_hi = 1.0e3 * j1_scale
-        J1_abs = np.minimum(J1_abs, clip_hi)
+    if use_local_clip:
+        J1_abs = _rolling_clip(J1_abs, local_clip_window, local_clip_factor)
+    else:
+        j1_scale = float(np.median(J1_abs[J1_abs > 0])) if (J1_abs > 0).any() else 0.0
+        if j1_scale > 0.0:
+            clip_hi = global_clip_factor * j1_scale
+            J1_abs = np.minimum(J1_abs, clip_hi)
 
     dr = np.diff(r_grid)
     trap = 0.5 * (J1_abs[:-1] + J1_abs[1:]) * dr
     F_vals = np.concatenate(([0.0], np.cumsum(trap)))
-
     F_mono = np.maximum.accumulate(F_vals)
 
     def _profile_for_r0(r0: float) -> np.ndarray:
         F_at_r0 = float(np.interp(r0, r_grid, F_mono))
         target = F_at_r0 - (iL / F) * xL
-        return np.interp(target, F_mono, r_grid,
-                         left=r_grid[0], right=r_grid[-1])
+        return np.interp(target, F_mono, r_grid, left=r_grid[0], right=r_grid[-1])
 
     def _ravg_residual(r0: float) -> float:
         r_vals = _profile_for_r0(r0)
         return float(np.trapezoid(r_vals, xL) - ravg)
 
-    # Outer brentq on r0
     lo, hi = r_min, r_max
     f_lo = _ravg_residual(lo)
     f_hi = _ravg_residual(hi)
@@ -197,7 +196,6 @@ def solve_r_profile(
         except Exception:
             pass
     else:
-        # As a fallback, choose r0 = ravg (often near the true solution).
         r0_final = float(ravg)
 
     r_profile = _profile_for_r0(r0_final)
@@ -215,9 +213,6 @@ def solve_r_profile(
     )
 
 
-# ----------------------------------------------------------------------
-# Potential drop
-# ----------------------------------------------------------------------
 @dataclass
 class PotentialDrop:
     iL: float
@@ -239,20 +234,17 @@ def compute_potential_drop(
     quad_abs_tol: float = 1.0e-10,
     quad_rel_tol: float = 1.0e-8,
 ) -> PotentialDrop:
-    """Evaluate phi_ohmic, phi_conc, phi_strain from a solved r profile."""
     xL = profile.x_over_L
     r_prof = profile.r
     iL = profile.iL
     RT_over_F = (transport.R * transport.T) / transport.F
 
-    # --- Ohmic (integral over x/L) ---
     kappa_vals = np.asarray(transport.kappa(r_prof))
     integrand_ohmic = 1.0 / np.clip(kappa_vals, 1.0e-30, None)
     delta_phi_ohmic = float(iL * np.trapezoid(integrand_ohmic, xL))
 
-    # --- Concentration & strain (integrals over r from r(x/L=1) to r(x/L=0)) ---
-    r_lo = float(r_prof[-1])  # x/L = 1
-    r_hi = float(r_prof[0])   # x/L = 0
+    r_lo = float(r_prof[-1])
+    r_hi = float(r_prof[0])
 
     def conc_integrand(r):
         t_minus = transport.t_minus_0(r)
@@ -287,9 +279,6 @@ def compute_potential_drop(
     )
 
 
-# ----------------------------------------------------------------------
-# iL sweep (current-voltage relationship)
-# ----------------------------------------------------------------------
 @dataclass
 class IVCurve:
     iL: np.ndarray
@@ -316,7 +305,6 @@ def sweep_iL(
     quad_abs_tol: float = 1.0e-10,
     quad_rel_tol: float = 1.0e-8,
 ) -> IVCurve:
-    """Sweep iL → solve profile + compute pih for each value. Used for Fig. 7."""
     iL_values = np.asarray(iL_values, dtype=float)
     dphi_tot = np.empty_like(iL_values)
     dphi_oh = np.empty_like(iL_values)
@@ -341,11 +329,9 @@ def sweep_iL(
         dphi_st[k] = pd.delta_phi_strain
         conv[k] = prof.converged
 
-    # Limiting current: largest iL where the profile still converges and
-    # total potential hasn't exploded.
     try:
         finite = np.isfinite(dphi_tot) & conv
-        reasonable = dphi_tot < 1.0e3  # V/cm; anything larger is runaway
+        reasonable = dphi_tot < 1.0e3
         mask = finite & reasonable
         i_lim = float(iL_values[mask].max()) if mask.any() else None
     except Exception:
