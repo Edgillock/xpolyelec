@@ -10,31 +10,33 @@ Outputs are written to ./diagnostics/ as CSV + PNG so they can be shared.
 """
 
 import os
-import inspect
+import csv
 import numpy as np
 import matplotlib.pyplot as plt
 
 from xpolyelec import Simulation
-from xpolyelec.solver import build_J1_and_J2, solve_r_profile
+from xpolyelec.solver import build_J1_and_J2, solve_r_profile, _dc_dr_centred
 
 OUTDIR = "diagnostics"
 os.makedirs(OUTDIR, exist_ok=True)
 
-# ---- setup: Gent / Crosslink model at default (60 C) config ----
+# ---------------------------------------------------------------------
+# Setup: Gent / Crosslink model at default (60 C) config, via Simulation
+# facade so we don't have to guess low-level constructor signatures.
+# ---------------------------------------------------------------------
 sim = Simulation()
 sim.set_strain_model("gent")
 
-# Introspect Simulation to find the transport/strain_model/ctx attributes
-# without guessing names — print them once so you can confirm/adjust below.
 attrs = [a for a in dir(sim) if not a.startswith("_")]
 print("Simulation public attributes:", attrs)
 
-# Try the most likely attribute names in order; fall back gracefully.
+
 def _get_first(obj, names):
     for n in names:
         if hasattr(obj, n):
             return getattr(obj, n), n
     return None, None
+
 
 transport, t_name = _get_first(sim, ["transport", "_transport", "props", "transport_properties"])
 strain_model, sm_name = _get_first(sim, ["strain_model", "_strain_model", "model"])
@@ -44,10 +46,9 @@ print(f"Resolved: transport -> sim.{t_name}, strain_model -> sim.{sm_name}, ctx 
 
 if transport is None or strain_model is None or ctx is None:
     raise RuntimeError(
-        "Could not auto-resolve transport/strain_model/ctx from Simulation. "
-        "Please open src/xpolyelec/api.py and check the exact attribute names "
-        "(look for where TransportProperties / StrainModel / StrainContext are "
-        "stored on self), then edit the _get_first(...) name lists above."
+        f"Could not auto-resolve transport/strain_model/ctx from Simulation. "
+        f"Public attributes were: {attrs}. Please check src/xpolyelec/api.py "
+        "and edit the _get_first(...) name lists above."
     )
 
 J = build_J1_and_J2(transport, strain_model, ctx, strain_form="literal")
@@ -131,7 +132,6 @@ for rp in POINTS_OF_INTEREST:
     lam = float(np.asarray(ctx.lambda_of_r(r_arr))[0])
     rows.append((rp, tf, tm, tp, dmu, lam))
 
-import csv
 with open(os.path.join(OUTDIR, "step3_factor_breakdown.csv"), "w", newline="") as f:
     w = csv.writer(f)
     w.writerow(["r", "thermo_factor", "t_minus_0", "t_plus_0", "d_mu_strain_d_r", "lambda"])
@@ -225,9 +225,92 @@ fig.tight_layout()
 fig.savefig(os.path.join(OUTDIR, "step5b_rho_plus_high_r.png"), dpi=150)
 plt.close(fig)
 
-print("Diagnostics complete. See ./diagnostics/ for CSVs and PNGs.")
+# =====================================================================
+# STEP 6: Gamma_conc factor decomposition over r=0.15-0.30
+# (isolates which single factor drives the Fig 3A plateau failure)
+# =====================================================================
+D_vals = transport.D(r_high)
+tf_vals = transport.thermo_factor(r_high)
+tm_vals = transport.t_minus_0(r_high)
+dcdr_vals = _dc_dr_centred(transport, r_high) * 1.0e-3  # mol/cm^3 per unit r
+
+kappa_vals = transport.kappa(r_high)
+dUdlnm_vals = transport.dU_dlnm(r_high)
+c_vals = transport.c(r_high) * 1.0e-3  # mol/cm^3
+
+gamma_conc_recomputed = D_vals * tf_vals * dcdr_vals / np.where(np.abs(tm_vals) < 1e-12, 1e-12, tm_vals)
+
+np.savetxt(
+    os.path.join(OUTDIR, "step6_gamma_conc_factors.csv"),
+    np.column_stack([
+        r_high, D_vals, tf_vals, tm_vals, dcdr_vals,
+        kappa_vals, dUdlnm_vals, rho_plus_high, c_vals, gamma_conc_recomputed,
+    ]),
+    delimiter=",",
+    header="r,D,thermo_factor,t_minus_0,dc_dr,kappa,dU_dlnm,rho_plus,c,Gamma_conc",
+    comments="",
+)
+
+fig, axes = plt.subplots(4, 2, figsize=(13, 14), sharex=True)
+panels = [
+    (D_vals, "D(r)", False),
+    (tf_vals, "thermo_factor (1+Theta)", False),
+    (tm_vals, "t_minus_0", False),
+    (dcdr_vals, "dc/dr [mol/cm^3 per unit r]", False),
+    (kappa_vals, "kappa(r)", True),
+    (dUdlnm_vals, "dU/d ln m", False),
+    (rho_plus_high, "rho_plus(r)", False),
+    (gamma_conc_recomputed, "Gamma_conc (combined)", True),
+]
+for ax, (vals, name, logscale) in zip(axes.flat, panels):
+    ax.plot(r_high, vals, lw=1.2)
+    ax.set_ylabel(name)
+    if logscale:
+        ax.set_yscale("log")
+    ax.grid(alpha=0.3)
+axes[-1, 0].set_xlabel("r")
+axes[-1, 1].set_xlabel("r")
+fig.suptitle("Step 6: Gamma_conc factor breakdown over r=0.15-0.30 (Fig 3A plateau region)")
+fig.tight_layout()
+fig.savefig(os.path.join(OUTDIR, "step6_gamma_conc_factors.png"), dpi=150)
+plt.close(fig)
+
+fig, ax1 = plt.subplots(figsize=(8, 5))
+ax1.plot(r_high, tf_vals, color="tab:blue", label="thermo_factor (1+Theta)")
+ax1.set_xlabel("r")
+ax1.set_ylabel("thermo_factor", color="tab:blue")
+ax1.set_yscale("log")
+ax2 = ax1.twinx()
+ax2.plot(r_high, tm_vals, color="tab:red", label="t_minus_0")
+ax2.set_ylabel("t_minus_0", color="tab:red")
+ax2.axhline(0, color="tab:red", ls=":", lw=0.8)
+fig.suptitle("Step 6b: thermo_factor vs t_minus_0, r=0.15-0.30")
+fig.tight_layout()
+fig.savefig(os.path.join(OUTDIR, "step6b_thermo_vs_tminus.png"), dpi=150)
+plt.close(fig)
+
+
+def _rel_growth(vals):
+    v0, v1 = vals[0], vals[-1]
+    if v0 == 0:
+        return np.inf
+    return (v1 - v0) / abs(v0)
+
+
+print("\n--- Step 6 relative growth from r=0.15 to r=0.30 ---")
+for vals, name, _ in panels:
+    print(f"  {name}: {vals[0]:.4e} -> {vals[-1]:.4e}  (rel growth = {_rel_growth(vals):.3f})")
+
+print("\nMinimum |t_minus_0| in range:", np.min(np.abs(tm_vals)), "at r =", r_high[np.argmin(np.abs(tm_vals))])
+print("Maximum thermo_factor in range:", np.max(tf_vals), "at r =", r_high[np.argmax(tf_vals)])
+
+# =====================================================================
+# Final summary printout
+# =====================================================================
+print("\n--- Diagnostics complete ---")
+print("All CSVs and PNGs written to ./diagnostics/")
 print("Spline domain:", spline_domain)
-print("Step 3 factor breakdown:")
+print("Step 3 factor breakdown rows (r, thermo_factor, t_minus_0, t_plus_0, d_mu_strain_d_r, lambda):")
 for row in rows:
-    print(row)
+    print(" ", row)
 
