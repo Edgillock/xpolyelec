@@ -8,24 +8,47 @@ performs the 5 diagnostic steps:
 
 Outputs are written to ./diagnostics/ as CSV + PNG so they can be shared.
 """
+
 import os
+import inspect
 import numpy as np
 import matplotlib.pyplot as plt
 
-from xpolyelec.config import load_default_config
-from xpolyelec.transport import TransportProperties
-from xpolyelec.strain import get_strain_model
-from xpolyelec.strain.base import StrainContext
+from xpolyelec import Simulation
 from xpolyelec.solver import build_J1_and_J2, solve_r_profile
 
 OUTDIR = "diagnostics"
 os.makedirs(OUTDIR, exist_ok=True)
 
 # ---- setup: Gent / Crosslink model at default (60 C) config ----
-config = load_default_config()
-transport = TransportProperties.from_config(config)
-strain_model = get_strain_model("gent")
-ctx = StrainContext.from_config(config, transport)
+sim = Simulation()
+sim.set_strain_model("gent")
+
+# Introspect Simulation to find the transport/strain_model/ctx attributes
+# without guessing names — print them once so you can confirm/adjust below.
+attrs = [a for a in dir(sim) if not a.startswith("_")]
+print("Simulation public attributes:", attrs)
+
+# Try the most likely attribute names in order; fall back gracefully.
+def _get_first(obj, names):
+    for n in names:
+        if hasattr(obj, n):
+            return getattr(obj, n), n
+    return None, None
+
+transport, t_name = _get_first(sim, ["transport", "_transport", "props", "transport_properties"])
+strain_model, sm_name = _get_first(sim, ["strain_model", "_strain_model", "model"])
+ctx, ctx_name = _get_first(sim, ["ctx", "_ctx", "strain_context", "context"])
+
+print(f"Resolved: transport -> sim.{t_name}, strain_model -> sim.{sm_name}, ctx -> sim.{ctx_name}")
+
+if transport is None or strain_model is None or ctx is None:
+    raise RuntimeError(
+        "Could not auto-resolve transport/strain_model/ctx from Simulation. "
+        "Please open src/xpolyelec/api.py and check the exact attribute names "
+        "(look for where TransportProperties / StrainModel / StrainContext are "
+        "stored on self), then edit the _get_first(...) name lists above."
+    )
 
 J = build_J1_and_J2(transport, strain_model, ctx, strain_form="literal")
 
@@ -47,8 +70,10 @@ fig, ax = plt.subplots(figsize=(7, 5))
 ax.plot(r_dense, J1_raw, lw=1)
 for rp in POINTS_OF_INTEREST:
     ax.axvline(rp, color="red", ls="--", lw=0.8, alpha=0.6)
-ax.set_ylim(-5 * np.nanpercentile(np.abs(J1_raw), 90),
-            5 * np.nanpercentile(np.abs(J1_raw), 90))
+finite = J1_raw[np.isfinite(J1_raw)]
+if finite.size:
+    cap = 5 * np.nanpercentile(np.abs(finite), 90)
+    ax.set_ylim(-cap, cap)
 ax.set_xlabel("r")
 ax.set_ylabel("J1(r) [raw, unclipped]")
 ax.set_title("Step 1: Raw J1(r), no clipping")
@@ -59,11 +84,8 @@ plt.close(fig)
 # =====================================================================
 # STEP 2: Fig 2F spline domain vs suspicious r-values
 # =====================================================================
-spline = transport._fig2f_spline
-if spline is not None:
-    spline_domain = (float(spline.x.min()), float(spline.x.max()))
-else:
-    spline_domain = None
+spline = getattr(transport, "_fig2f_spline", None)
+spline_domain = (float(spline.x.min()), float(spline.x.max())) if spline is not None else None
 
 with open(os.path.join(OUTDIR, "step2_spline_domain.txt"), "w") as f:
     f.write(f"Fig2F spline domain: {spline_domain}\n")
@@ -76,7 +98,6 @@ with open(os.path.join(OUTDIR, "step2_spline_domain.txt"), "w") as f:
             )
             f.write(f"  r={rp}: near spline boundary = {near_edge}\n")
 
-# t_minus_0 and derivative continuity across the spline boundary
 if spline_domain is not None:
     lo, hi = spline_domain
     r_edge_lo = np.linspace(max(0.001, lo - 0.02), lo + 0.02, 400)
@@ -106,8 +127,8 @@ for rp in POINTS_OF_INTEREST:
     tf = float(transport.thermo_factor(r_arr)[0])
     tm = float(transport.t_minus_0(r_arr)[0])
     tp = float(transport.t_plus_0(r_arr)[0])
-    dmu = float(strain_model.d_mu_strain_d_r(r_arr, ctx)[0])
-    lam = float(ctx.lambda_of_r(r_arr)[0])
+    dmu = float(np.asarray(strain_model.d_mu_strain_d_r(r_arr, ctx))[0])
+    lam = float(np.asarray(ctx.lambda_of_r(r_arr))[0])
     rows.append((rp, tf, tm, tp, dmu, lam))
 
 import csv
@@ -116,12 +137,11 @@ with open(os.path.join(OUTDIR, "step3_factor_breakdown.csv"), "w", newline="") a
     w.writerow(["r", "thermo_factor", "t_minus_0", "t_plus_0", "d_mu_strain_d_r", "lambda"])
     w.writerows(rows)
 
-# also plot each factor continuously across the region for visual inspection
 r_fine = np.linspace(0.015, 0.16, 3000)
 tf_fine = transport.thermo_factor(r_fine)
 tm_fine = transport.t_minus_0(r_fine)
-dmu_fine = strain_model.d_mu_strain_d_r(r_fine, ctx)
-lam_fine = ctx.lambda_of_r(r_fine)
+dmu_fine = np.asarray(strain_model.d_mu_strain_d_r(r_fine, ctx))
+lam_fine = np.asarray(ctx.lambda_of_r(r_fine))
 
 fig, axes = plt.subplots(4, 1, figsize=(8, 12), sharex=True)
 for ax, y, name in zip(
@@ -193,7 +213,6 @@ fig.tight_layout()
 fig.savefig(os.path.join(OUTDIR, "step5_high_r_breakdown.png"), dpi=150)
 plt.close(fig)
 
-# also isolate rho_plus behaviour at high r, since it drives thermo_factor blowup
 rho_plus_high = transport.rho_plus(r_high)
 fig, ax = plt.subplots(figsize=(7, 4))
 ax.plot(r_high, rho_plus_high)
@@ -211,3 +230,4 @@ print("Spline domain:", spline_domain)
 print("Step 3 factor breakdown:")
 for row in rows:
     print(row)
+
