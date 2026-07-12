@@ -110,19 +110,62 @@ def plot_fig3(
     models: dict[str, JFunctions],
     r_grid: np.ndarray | None = None,
 ):
-    """Overlay J1(r) for one or more model labels."""
+  
     if r_grid is None:
         r_grid = np.linspace(0.01, 0.29, 400)
-    fig, ax = plt.subplots(figsize=(6, 4.5))
+    fig, axs = plt.subplots(1, 2, figsize=(10, 4.5))
+    baseline_models: dict[str, JFunctions] = {}
+    strained_models: dict[str, JFunctions] = {}
     for label, J in models.items():
-        ax.plot(r_grid, J.J1(r_grid), label=label)
+        low = label.lower()
+        if ("baseline" in low) or ("nostrain" in low) or (low == "no strain"):
+            baseline_models[label] = J
+        else:
+            strained_models[label] = J
+
+    # Fallback: if user passed a single model, show it on both panels
+    if not baseline_models and not strained_models:
+        pass
+    elif not baseline_models:
+        # Only strained provided — leave A empty but annotate
+        pass
+    elif not strained_models:
+        # Only baseline provided — leave B empty but annotate
+        pass
+
+    # Panel A: Baseline
+    ax = axs[0]
+    if baseline_models:
+        for label, J in baseline_models.items():
+            ax.plot(r_grid, J.J1(r_grid), color="tab:blue", label=label)
     ax.axhline(0.0, color="grey", lw=0.5)
     ax.set_xlabel(r"$r$")
-    ax.set_ylabel(r"$J_1(r)$ [mol/(cm·s)]")
-    ax.set_title("Fig. 3 — $J_1(r) = \\Gamma_{\\mathrm{conc}} + \\Gamma_{\\mathrm{strain}}$")
-    ax.legend()
+    ax.set_ylabel(r"$J_1(r)$ [mol/(cm$\cdot$s)]")
+    ax.set_title("A — Baseline")
+    if baseline_models:
+        ax.legend(fontsize=8)
+
+    # Panel B: Crosslinked / Gent
+    ax = axs[1]
+    if strained_models:
+        for label, J in strained_models.items():
+            ax.plot(r_grid, J.J1(r_grid), color="tab:green", label=label)
+    ax.axhline(0.0, color="grey", lw=0.5)
+    ax.set_xlabel(r"$r$")
+    ax.set_ylabel(r"$J_1(r)$ [mol/(cm$\cdot$s)]")
+    ax.set_title("B — Crosslinked (Gent)")
+    # Clamp the y-axis so divergent peaks at lam_crit don't dominate. Mirrors the
+    # paper's Fig. 3B which is rendered with a 1e-10 ceiling.
+    if strained_models:
+        ax.set_ylim(0.0, 1.0e-10)
+        ax.legend(fontsize=8)
+
+    fig.suptitle(
+        r"Fig. 3 — $J_1(r) = \Gamma_{\mathrm{conc}} + \Gamma_{\mathrm{strain}}$",
+        y=1.02,
+    )
     fig.tight_layout()
-    return fig, ax
+    return fig, axs
 
 
 # ----------------------------------------------------------------------
