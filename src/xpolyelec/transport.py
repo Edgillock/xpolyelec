@@ -178,4 +178,4 @@ class TransportProperties:
 
     def t_minus_0(self, r):
         
-        return 1.0 - self._t_plus_0_analytical(r)
+        return 1.0 - self.t_plus_0(r)
